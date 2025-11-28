@@ -1,10 +1,11 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, ArrowRight, Download, RefreshCw, Share2, FileText, Mail, Linkedin, ExternalLink, MapPin, Radio, AlertTriangle } from 'lucide-react';
+import { Upload, ArrowRight, Download, RefreshCw, Share2, FileText, Mail, Linkedin, ExternalLink, MapPin, Radio, AlertTriangle, Award } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { computeFileHash, computeCompositeHash } from '../services/hashService';
 import { writeHashToChain } from '../services/chainService';
 import { embedWatermark, embedMetadata } from '../services/imageService';
+import { generateCertificate } from '../services/certificateService';
 import { SensorData } from '../types';
 
 export const Certify: React.FC = () => {
@@ -15,7 +16,9 @@ export const Certify: React.FC = () => {
   const [hash, setHash] = useState<string>('');
   const [processedImage, setProcessedImage] = useState<string | null>(null);
   const [processedBlob, setProcessedBlob] = useState<Blob | null>(null);
+  const [certificateUrl, setCertificateUrl] = useState<string | null>(null);
   const [txId, setTxId] = useState<string>('');
+  const [timestamp, setTimestamp] = useState<number>(0);
   const [isSimulation, setIsSimulation] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -39,8 +42,10 @@ export const Certify: React.FC = () => {
       setStatus('IDLE');
       setProcessedImage(null);
       setProcessedBlob(null);
+      setCertificateUrl(null);
       setHash('');
       setTxId('');
+      setTimestamp(0);
       setIsSimulation(false);
       setError(null);
       setIsLive(false); 
@@ -75,7 +80,21 @@ export const Certify: React.FC = () => {
       );
 
       setTxId(chainRecord.txHash || '—');
+      setTimestamp(chainRecord.timestamp || Date.now());
       setIsSimulation(!!chainRecord.isSimulation);
+
+      // Generate PDF certificate
+      if (!chainRecord.isSimulation && chainRecord.txHash) {
+        const certBlob = await generateCertificate({
+          fileName: file.name,
+          fileHash: finalHash,
+          txHash: chainRecord.txHash,
+          timestamp: chainRecord.timestamp || Date.now(),
+          blockHeight: chainRecord.blockHeight,
+          sender: chainRecord.sender,
+        });
+        setCertificateUrl(URL.createObjectURL(certBlob));
+      }
 
       setStatus('WATERMARKING');
       
@@ -196,35 +215,61 @@ export const Certify: React.FC = () => {
 
         {status === 'COMPLETE' && (
            <div className="space-y-8">
-             <div className="p-8 border border-white/10 bg-white/5 relative overflow-hidden">
+             <div className="p-6 md:p-8 border border-white/10 bg-white/5 relative overflow-hidden">
                 {isSimulation && (
                   <div className="absolute top-0 right-0 p-4">
                     <span className="text-[10px] font-bold uppercase tracking-widest text-yellow-500 border border-yellow-500/50 px-2 py-1 rounded bg-yellow-500/10">Demo Mode</span>
                   </div>
                 )}
                 
-                <h3 className="font-serif text-3xl text-white mb-2">Certified.</h3>
+                <h3 className="font-serif text-2xl md:text-3xl text-white mb-2">Certified.</h3>
                 <p className="text-neutral-400 text-sm mb-6">
                   {isSimulation 
                     ? "Proof generated in local simulation mode. This record exists only in this browser."
-                    : "This document is now permanently recorded on the Polygon blockchain. The certificate below serves as proof of existence at this timestamp."}
+                    : "This document is now permanently recorded on the Polygon blockchain. Download your certificate as proof."}
                 </p>
                 
                 <div className="flex flex-col gap-3">
+                  {certificateUrl && (
+                    <a 
+                      href={certificateUrl} 
+                      download={`origynl-certificate-${file?.name || 'document'}.pdf`}
+                      className="flex items-center justify-between w-full py-4 px-6 bg-orange-600 hover:bg-orange-700 text-white transition-colors text-xs uppercase tracking-widest font-bold"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Award size={16} />
+                        Download Certificate
+                      </span>
+                      <Download size={14} /> 
+                    </a>
+                  )}
+
                   <a 
                     href={processedImage || '#'} 
                     download={`origynl-stamped.${isPDF ? 'pdf' : 'jpg'}`}
-                    className="flex items-center justify-between w-full py-4 px-6 bg-orange-600 hover:bg-orange-700 text-white transition-colors text-xs uppercase tracking-widest font-bold"
+                    className={`flex items-center justify-between w-full py-4 px-6 transition-colors text-xs uppercase tracking-widest font-bold ${certificateUrl ? 'border border-white/10 hover:bg-white/5 text-neutral-400' : 'bg-orange-600 hover:bg-orange-700 text-white'}`}
                   >
                     <span>Download Stamped File</span>
                     <Download size={14} /> 
                   </a>
 
+                  {!isSimulation && txId && (
+                    <a 
+                      href={`https://amoy.polygonscan.com/tx/${txId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest"
+                    >
+                      <span>View on Blockchain</span>
+                      <ExternalLink size={14} />
+                    </a>
+                  )}
+
                   <button 
-                   onClick={() => { setStatus('IDLE'); setFile(null); setProcessedImage(null); }}
-                   className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest mt-4"
+                   onClick={() => { setStatus('IDLE'); setFile(null); setProcessedImage(null); setCertificateUrl(null); }}
+                   className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest mt-2"
                   >
-                    <span>Process Another</span>
+                    <span>Certify Another</span>
                     <RefreshCw size={14} />
                   </button>
                 </div>
