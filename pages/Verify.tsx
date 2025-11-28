@@ -1,6 +1,6 @@
 
-import React, { useState } from 'react';
-import { Search, Check, X, Upload, ShieldCheck, ExternalLink, MapPin, Radio, FileSearch, Zap, FileCheck, Database } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Search, Check, X, Upload, ShieldCheck, ExternalLink, MapPin, Radio, FileSearch, Zap, FileCheck, Database, FileText } from 'lucide-react';
 import { computeFileHash } from '../services/hashService';
 import { findRecordByHash } from '../services/chainService';
 import { extractHashFromMetadata } from '../services/imageService';
@@ -10,8 +10,10 @@ export const Verify: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [inputHash, setInputHash] = useState('');
   const [result, setResult] = useState<VerificationResult>({ status: VerificationStatus.IDLE });
-  const [processStep, setProcessStep] = useState<'IDLE' | 'ANALYZING' | 'HASHING' | 'LOOKUP'>('IDLE');
+  const [processStep, setProcessStep] = useState<'IDLE' | 'READING' | 'ANALYZING' | 'HASHING' | 'LOOKUP'>('IDLE');
   const [verifiedByMetadata, setVerifiedByMetadata] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const handleVerify = async (fileToVerify?: File, hashToVerify?: string) => {
     setResult({ status: VerificationStatus.PROCESSING });
@@ -21,6 +23,9 @@ export const Verify: React.FC = () => {
       let targetHash = hashToVerify || '';
 
       if (fileToVerify) {
+        setProcessStep('READING');
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
         setProcessStep('ANALYZING');
         
         // 1. Try to extract hash from metadata first
@@ -33,7 +38,7 @@ export const Verify: React.FC = () => {
         } else {
           // 2. Fallback to raw content hashing
           setProcessStep('HASHING');
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 400));
           targetHash = await computeFileHash(fileToVerify);
         }
       } else if (!hashToVerify && inputHash) {
@@ -78,19 +83,86 @@ export const Verify: React.FC = () => {
     }
   };
 
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const f = e.dataTransfer.files[0];
+      setFile(f);
+      handleVerify(f);
+    }
+  };
+
   const isLoading = processStep !== 'IDLE';
 
+  const getStepMessage = () => {
+    switch (processStep) {
+      case 'READING': return 'Reading file...';
+      case 'ANALYZING': return 'Checking for embedded certificate...';
+      case 'HASHING': return 'Computing fingerprint...';
+      case 'LOOKUP': return 'Searching blockchain records...';
+      default: return '';
+    }
+  };
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-[80vh] p-4 md:p-16 w-full max-w-7xl mx-auto">
+    <div 
+      ref={dropZoneRef}
+      className={`flex flex-col items-center justify-center min-h-[80vh] p-4 md:p-16 w-full max-w-7xl mx-auto transition-all duration-300 ${isDragging ? 'bg-orange-600/5' : ''}`}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       
+      {/* Drag overlay */}
+      {isDragging && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center pointer-events-none">
+          <div className="border-2 border-dashed border-orange-600 rounded-lg p-16 text-center">
+            <Upload className="w-16 h-16 text-orange-600 mx-auto mb-4" />
+            <p className="text-2xl text-white font-serif">Drop file to verify</p>
+            <p className="text-neutral-400 mt-2">We'll check if it's been certified</p>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-2xl mb-8 md:mb-16 text-center space-y-4 px-4">
         <h1 className="font-serif text-4xl md:text-6xl text-white">Verify Authenticity</h1>
         <p className="text-neutral-500 font-light text-sm md:text-base">
-          Check if a document has been certified. Upload the file or paste the transaction ID from the certificate.
+          Drop a file anywhere on this page to check if it's been certified, or paste a transaction ID below.
         </p>
       </div>
 
       <div className="w-full max-w-3xl space-y-4 md:space-y-8 px-4">
+        
+        {/* Drop zone card */}
+        <label className="block cursor-pointer group">
+          <input type="file" className="hidden" onChange={handleFileDrop} />
+          <div className="border border-dashed border-neutral-800 hover:border-orange-600 hover:bg-orange-600/5 transition-all p-8 text-center">
+            <div className="w-14 h-14 rounded-full border border-neutral-800 group-hover:border-orange-600 flex items-center justify-center mx-auto mb-4 transition-colors">
+              <FileText className="w-6 h-6 text-neutral-600 group-hover:text-orange-600 transition-colors" />
+            </div>
+            <p className="text-neutral-400 group-hover:text-white transition-colors">Drop a file here or click to browse</p>
+            <p className="text-neutral-600 text-xs mt-2">We'll compute its fingerprint and search the blockchain</p>
+          </div>
+        </label>
+
+        <div className="flex items-center gap-4">
+          <div className="flex-1 h-px bg-neutral-800"></div>
+          <span className="text-neutral-600 text-xs uppercase tracking-widest">or search by hash</span>
+          <div className="flex-1 h-px bg-neutral-800"></div>
+        </div>
+
         <div className="relative group">
           <div className="absolute inset-0 bg-gradient-to-r from-orange-600 to-orange-900 blur opacity-20 group-hover:opacity-30 transition-opacity duration-500 rounded-lg"></div>
           
@@ -109,14 +181,8 @@ export const Verify: React.FC = () => {
                />
             </div>
             
-            {/* Action buttons row */}
+            {/* Action button */}
             <div className="flex items-center gap-2 border-t md:border-t-0 md:border-l border-white/10 pt-2 md:pt-0 md:pl-2">
-              <label className="flex items-center justify-center gap-2 px-4 py-3 cursor-pointer hover:bg-white/5 transition-colors rounded-sm flex-1 md:flex-none">
-                 <input type="file" className="hidden" onChange={handleFileDrop} />
-                 <Upload size={16} className="text-neutral-400" />
-                 <span className="text-xs uppercase tracking-widest text-neutral-400">Upload</span>
-              </label>
-
               <button 
                 onClick={() => handleVerify(undefined, inputHash)}
                 disabled={!inputHash || isLoading}
@@ -135,10 +201,11 @@ export const Verify: React.FC = () => {
            <div className="flex flex-col items-center space-y-6">
              <div className="w-12 h-12 border-2 border-white/10 border-t-orange-600 rounded-full animate-spin"></div>
              <span className="font-mono text-xs uppercase tracking-widest text-neutral-500 animate-pulse text-center">
-               {processStep === 'ANALYZING' ? 'Extracting Metadata...' : 
-                processStep === 'HASHING' ? 'Calculating Checksum...' : 
-                'Auditing Blockchain Ledger...'}
+               {getStepMessage()}
              </span>
+             {file && (
+               <span className="text-neutral-600 text-xs">{file.name}</span>
+             )}
            </div>
         )}
 
@@ -176,6 +243,11 @@ export const Verify: React.FC = () => {
                    <div className="mt-2 flex items-center gap-2 text-neutral-500">
                      <FileSearch size={12} />
                      <span className="text-[10px] uppercase tracking-wide">Matched via Embedded Metadata</span>
+                   </div>
+                 )}
+                 {file && (
+                   <div className="mt-2 text-neutral-500 text-xs">
+                     File: {file.name}
                    </div>
                  )}
                </div>
@@ -274,6 +346,9 @@ export const Verify: React.FC = () => {
              <p className="text-neutral-400 text-sm max-w-xs mx-auto mb-8 leading-relaxed">
                This document has not been certified with Origynl, or the file has been modified since certification.
              </p>
+             {file && (
+               <p className="text-neutral-500 text-xs mb-4">File: {file.name}</p>
+             )}
              <div className="font-mono text-[10px] text-neutral-500 uppercase">
                Checked Hash: <span className="text-red-400 break-all">{result.currentHash}</span>
              </div>

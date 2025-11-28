@@ -324,6 +324,12 @@ export const Home: React.FC = () => {
               Verify a Document
             </Link>
           </div>
+          <div className="pt-6">
+            <Link to="/demo" className="text-neutral-500 hover:text-orange-600 text-sm transition-colors inline-flex items-center gap-2">
+              <span>See why tampering is impossible</span>
+              <ArrowRight size={14} />
+            </Link>
+          </div>
         </div>
       </section>
 
