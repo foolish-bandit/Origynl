@@ -101,9 +101,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       functionName: 'certify',
       args: [hash],
       account,
+      chain: polygonAmoy,
     });
 
-    const txHash = await walletClient.writeContract(request);
+    const txHash = await walletClient.writeContract(request as any);
     console.log(`[Pending] TX: ${txHash}`);
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
