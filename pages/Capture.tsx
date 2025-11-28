@@ -82,6 +82,15 @@ export const Capture: React.FC = () => {
     }, 600); 
   }, [webcamRef, navigate, sensors]);
 
+  // Handle screen stream binding when mode changes
+  useEffect(() => {
+    if (mode === 'screen' && screenStream && screenVideoRef.current) {
+      const video = screenVideoRef.current;
+      video.srcObject = screenStream;
+      video.play().catch(err => console.error('Video play error:', err));
+    }
+  }, [mode, screenStream]);
+
   const startScreenCapture = async () => {
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({
@@ -91,9 +100,6 @@ export const Capture: React.FC = () => {
         audio: false
       });
       
-      setScreenStream(stream);
-      setMode('screen');
-
       // Handle when user stops sharing via browser UI
       stream.getVideoTracks()[0].onended = () => {
         setMode('select');
@@ -101,11 +107,9 @@ export const Capture: React.FC = () => {
         setScreenPreview(null);
       };
 
-      // Wait for video to be ready
-      if (screenVideoRef.current) {
-        screenVideoRef.current.srcObject = stream;
-        await screenVideoRef.current.play();
-      }
+      // Set stream first, then change mode - useEffect will handle binding
+      setScreenStream(stream);
+      setMode('screen');
     } catch (err) {
       console.error('Screen capture error:', err);
     }
