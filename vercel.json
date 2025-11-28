@@ -1,0 +1,10 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/certify", "destination": "/api/certify" },
+    { "source": "/api/verify", "destination": "/api/verify" },
+    { "source": "/((?!api).*)", "destination": "/index.html" }
+  ]
+}
