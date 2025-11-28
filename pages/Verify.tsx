@@ -271,3 +271,12 @@ export const Verify: React.FC = () => {
              </p>
              <div className="font-mono text-[10px] text-neutral-500 uppercase">
                Checked Hash: <span className="text-red-400 break-all">{result.currentHash}</span>
+             </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+};
+
