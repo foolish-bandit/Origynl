@@ -1,7 +1,6 @@
 
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X } from 'lucide-react';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
@@ -47,16 +46,24 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             ))}
           </nav>
           
-          {/* Mobile Menu Button */}
+          {/* Mobile Menu Button - Using inline SVG for reliability */}
           <button 
-            className="md:hidden flex items-center justify-center w-16 border-l border-white/5 hover:bg-white/5 transition-colors"
+            className="md:hidden flex items-center justify-center w-16 border-l border-white/5 hover:bg-white/5 transition-colors active:bg-white/10"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle menu"
+            type="button"
           >
             {mobileMenuOpen ? (
-              <X size={24} className="text-white" />
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
             ) : (
-              <Menu size={24} className="text-white" />
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white">
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+              </svg>
             )}
           </button>
 
@@ -64,13 +71,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
         {/* Mobile Menu Dropdown */}
         {mobileMenuOpen && (
-          <nav className="md:hidden border-t border-white/5 bg-neutral-950">
+          <nav className="md:hidden border-t border-white/5 bg-neutral-950 absolute left-0 right-0 top-16 z-50 shadow-2xl">
             {navLinks.map((link) => (
               <Link 
                 key={link.path}
                 to={link.path} 
                 onClick={() => setMobileMenuOpen(false)}
-                className={`block px-6 py-4 text-sm uppercase tracking-widest font-medium border-b border-white/5 transition-all ${isActive(link.path)}`}
+                className={`block px-6 py-5 text-base uppercase tracking-widest font-medium border-b border-white/5 transition-all active:bg-white/10 ${isActive(link.path)}`}
               >
                 {link.label}
               </Link>
