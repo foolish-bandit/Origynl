@@ -2,8 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ORIGINAL | Proof of Creation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Origynl | Prove Your Documents Are Real</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="description" content="Prove your documents are real. Certify them on the blockchain." />
+    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Origynl" />
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="apple-touch-icon" href="/icons/icon.svg" />
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair Display:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet">
     <script>
@@ -71,6 +86,25 @@
       ::-webkit-scrollbar-thumb:hover {
         background: #ea580c;
       }
+      
+      /* PWA Install Banner */
+      .pwa-install-banner {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        background: #1a1a1a;
+        border-top: 1px solid #333;
+        padding: 16px;
+        z-index: 9998;
+        display: none;
+      }
+      .pwa-install-banner.show {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
     </style>
   <script type="importmap">
 {
@@ -93,6 +127,74 @@
   <body>
     <div className="film-grain"></div>
     <div id="root"></div>
+    
+    <!-- PWA Install Banner -->
+    <div id="pwa-install-banner" class="pwa-install-banner">
+      <div style="flex: 1;">
+        <div style="font-weight: 600; color: #fff; margin-bottom: 2px;">Install Origynl</div>
+        <div style="font-size: 12px; color: #737373;">Add to your home screen for quick access</div>
+      </div>
+      <button id="pwa-install-btn" style="background: #ea580c; color: #fff; padding: 10px 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border: none; cursor: pointer;">
+        Install
+      </button>
+      <button id="pwa-dismiss-btn" style="background: none; border: none; color: #525252; padding: 8px; cursor: pointer; font-size: 18px;">
+        ✕
+      </button>
+    </div>
+    
     <script type="module" src="/index.tsx"></script>
+    
+    <!-- Register Service Worker & Handle Install -->
+    <script>
+      // Register service worker
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((reg) => console.log('SW registered:', reg.scope))
+            .catch((err) => console.log('SW registration failed:', err));
+        });
+      }
+      
+      // PWA Install prompt
+      let deferredPrompt;
+      const banner = document.getElementById('pwa-install-banner');
+      const installBtn = document.getElementById('pwa-install-btn');
+      const dismissBtn = document.getElementById('pwa-dismiss-btn');
+      
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        
+        // Check if user previously dismissed
+        if (!localStorage.getItem('pwa-dismissed')) {
+          banner.classList.add('show');
+        }
+      });
+      
+      installBtn.addEventListener('click', async () => {
+        if (!deferredPrompt) return;
+        
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        
+        if (outcome === 'accepted') {
+          console.log('PWA installed');
+        }
+        
+        deferredPrompt = null;
+        banner.classList.remove('show');
+      });
+      
+      dismissBtn.addEventListener('click', () => {
+        banner.classList.remove('show');
+        localStorage.setItem('pwa-dismissed', 'true');
+      });
+      
+      // Hide banner if already installed
+      window.addEventListener('appinstalled', () => {
+        banner.classList.remove('show');
+        deferredPrompt = null;
+      });
+    </script>
   </body>
 </html>
