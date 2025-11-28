@@ -1,4 +1,5 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import { MerkleProof } from './merkleService';
 
 export interface CertificateData {
   fileName: string;
@@ -7,6 +8,14 @@ export interface CertificateData {
   timestamp: number;
   blockHeight?: number;
   sender?: string;
+}
+
+export interface BatchCertificateData {
+  fileName: string;
+  fileHash: string;
+  txHash: string;
+  timestamp: number;
+  merkleProof: MerkleProof;
 }
 
 export const generateCertificate = async (data: CertificateData): Promise<Blob> => {
@@ -308,6 +317,203 @@ export const generateCertificate = async (data: CertificateData): Promise<Blob> 
     size: 7,
     font: helvetica,
     color: lightGray,
+  });
+
+  const pdfBytes = await pdfDoc.save();
+  return new Blob([pdfBytes], { type: 'application/pdf' });
+};
+
+/**
+ * Generate a certificate for a file that was part of a batch certification
+ */
+export const generateBatchCertificate = async (data: BatchCertificateData): Promise<Blob> => {
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([612, 792]);
+  
+  const helvetica = await pdfDoc.embedFont(StandardFonts.Helvetica);
+  const helveticaBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const courier = await pdfDoc.embedFont(StandardFonts.Courier);
+  
+  const { width, height } = page.getSize();
+  
+  const black = rgb(0.05, 0.05, 0.05);
+  const gray = rgb(0.4, 0.4, 0.4);
+  const lightGray = rgb(0.7, 0.7, 0.7);
+  const orange = rgb(0.92, 0.34, 0.05);
+  
+  // Border
+  page.drawRectangle({
+    x: 30, y: 30, width: width - 60, height: height - 60,
+    borderColor: lightGray, borderWidth: 1,
+  });
+  
+  page.drawRectangle({
+    x: 40, y: 40, width: width - 80, height: height - 80,
+    borderColor: lightGray, borderWidth: 0.5,
+  });
+
+  // Header
+  page.drawText('ORIGYNL', {
+    x: 60, y: height - 80, size: 28, font: helveticaBold, color: black,
+  });
+  page.drawText('.', {
+    x: 60 + helveticaBold.widthOfTextAtSize('ORIGYNL', 28),
+    y: height - 80, size: 28, font: helveticaBold, color: orange,
+  });
+
+  // Title with batch indicator
+  page.drawText('CERTIFICATE OF AUTHENTICITY', {
+    x: 60, y: height - 130, size: 16, font: helveticaBold, color: black,
+  });
+  
+  page.drawText(`Batch Certification (${data.merkleProof.index + 1} of ${data.merkleProof.totalFiles} documents)`, {
+    x: 60, y: height - 150, size: 10, font: helvetica, color: gray,
+  });
+
+  page.drawLine({
+    start: { x: 60, y: height - 170 }, end: { x: width - 60, y: height - 170 },
+    thickness: 1, color: lightGray,
+  });
+
+  // Certificate text
+  const certDate = new Date(data.timestamp).toLocaleDateString('en-US', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  });
+  const certTime = new Date(data.timestamp).toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit', timeZoneName: 'short',
+  });
+
+  page.drawText('This certificate confirms that the following document:', {
+    x: 60, y: height - 210, size: 11, font: helvetica, color: black,
+  });
+
+  // File name box
+  page.drawRectangle({
+    x: 60, y: height - 265, width: width - 120, height: 35,
+    color: rgb(0.97, 0.97, 0.97), borderColor: lightGray, borderWidth: 0.5,
+  });
+  
+  let displayName = data.fileName;
+  const maxWidth = width - 140;
+  while (helveticaBold.widthOfTextAtSize(displayName, 11) > maxWidth && displayName.length > 10) {
+    displayName = displayName.slice(0, -4) + '...';
+  }
+  page.drawText(displayName, {
+    x: 70, y: height - 252, size: 11, font: helveticaBold, color: black,
+  });
+
+  page.drawText('was certified to exist on:', {
+    x: 60, y: height - 290, size: 11, font: helvetica, color: black,
+  });
+
+  page.drawText(certDate, {
+    x: 60, y: height - 315, size: 16, font: helveticaBold, color: black,
+  });
+  page.drawText(`at ${certTime}`, {
+    x: 60, y: height - 332, size: 10, font: helvetica, color: gray,
+  });
+
+  // How batch certification works
+  page.drawLine({
+    start: { x: 60, y: height - 355 }, end: { x: width - 60, y: height - 355 },
+    thickness: 0.5, color: lightGray,
+  });
+
+  page.drawText('HOW THIS WORKS', {
+    x: 60, y: height - 380, size: 10, font: helveticaBold, color: orange,
+  });
+
+  const explanationLines = [
+    `This document was certified alongside ${data.merkleProof.totalFiles - 1} other files in a single batch.`,
+    'Instead of recording each file separately, we combined all the fingerprints into one',
+    '"summary fingerprint" (called a root hash) and recorded that on the blockchain.',
+    '',
+    'This certificate contains a mathematical proof that lets anyone verify this specific',
+    'document was part of that batch—without needing access to the other files.',
+  ];
+  
+  let yPos = height - 400;
+  for (const line of explanationLines) {
+    page.drawText(line, {
+      x: 60, y: yPos, size: 8, font: helvetica, color: gray,
+    });
+    yPos -= 12;
+  }
+
+  // Technical details
+  page.drawLine({
+    start: { x: 60, y: height - 480 }, end: { x: width - 60, y: height - 480 },
+    thickness: 0.5, color: lightGray,
+  });
+
+  page.drawText('VERIFICATION DETAILS', {
+    x: 60, y: height - 505, size: 10, font: helveticaBold, color: orange,
+  });
+
+  // Document fingerprint
+  page.drawText('This Document\'s Fingerprint:', {
+    x: 60, y: height - 530, size: 8, font: helveticaBold, color: gray,
+  });
+  page.drawText(data.fileHash, {
+    x: 60, y: height - 543, size: 6, font: courier, color: black,
+  });
+
+  // Root hash
+  page.drawText('Batch Summary (Root Hash on Blockchain):', {
+    x: 60, y: height - 565, size: 8, font: helveticaBold, color: gray,
+  });
+  page.drawText(data.merkleProof.rootHash, {
+    x: 60, y: height - 578, size: 6, font: courier, color: black,
+  });
+
+  // Transaction
+  page.drawText('Blockchain Transaction:', {
+    x: 60, y: height - 600, size: 8, font: helveticaBold, color: gray,
+  });
+  page.drawText(data.txHash, {
+    x: 60, y: height - 613, size: 6, font: courier, color: black,
+  });
+
+  // Proof path (simplified)
+  page.drawText(`Proof Path (${data.merkleProof.proofPath.length} steps):`, {
+    x: 60, y: height - 635, size: 8, font: helveticaBold, color: gray,
+  });
+  
+  const proofSummary = data.merkleProof.proofPath.length > 0 
+    ? data.merkleProof.proofPath.map((p, i) => `${i + 1}:${p.hash.slice(0, 8)}...`).join(' → ')
+    : 'Single file batch (no proof needed)';
+  page.drawText(proofSummary, {
+    x: 60, y: height - 648, size: 6, font: courier, color: gray,
+  });
+
+  // Verification links
+  page.drawLine({
+    start: { x: 60, y: height - 670 }, end: { x: width - 60, y: height - 670 },
+    thickness: 0.5, color: lightGray,
+  });
+
+  page.drawText('VERIFY THIS CERTIFICATE', {
+    x: 60, y: height - 693, size: 10, font: helveticaBold, color: orange,
+  });
+
+  page.drawText('View transaction: ', {
+    x: 60, y: height - 715, size: 8, font: helvetica, color: black,
+  });
+  page.drawText(`https://amoy.polygonscan.com/tx/${data.txHash}`, {
+    x: 140, y: height - 715, size: 6, font: courier, color: orange,
+  });
+
+  // Footer
+  page.drawLine({
+    start: { x: 60, y: 70 }, end: { x: width - 60, y: 70 },
+    thickness: 0.5, color: lightGray,
+  });
+
+  page.drawText('This certificate was generated by Origynl. The proof path above can be used to mathematically', {
+    x: 60, y: 55, size: 7, font: helvetica, color: lightGray,
+  });
+  page.drawText('verify this document was part of the certified batch without revealing the other documents.', {
+    x: 60, y: 45, size: 7, font: helvetica, color: lightGray,
   });
 
   const pdfBytes = await pdfDoc.save();
