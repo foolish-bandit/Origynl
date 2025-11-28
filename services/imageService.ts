@@ -49,8 +49,8 @@ export const embedWatermark = async (
       ctx.fillStyle = '#f97316'; // Tailwind Orange-500
       ctx.fillText(text, x, y);
 
-      // Export
-      const dataUrl = canvas.toDataURL(file.type);
+      // Export as PNG always (lossless = deterministic bytes for verification)
+      const dataUrl = canvas.toDataURL('image/png');
       URL.revokeObjectURL(url);
       resolve(dataUrl);
     };

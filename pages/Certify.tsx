@@ -155,7 +155,10 @@ export const Certify: React.FC = () => {
       const stampText = isLive ? `LIVE PROOF: ${originalHash}` : originalHash;
       const watermarkedUrl = await embedWatermark(file, stampText);
       finalUrl = await embedMetadata(file, watermarkedUrl, originalHash);
-      finalBlob = await fetch(finalUrl).then(r => r.blob());
+      // Force PNG blob type for deterministic hashing
+      const response = await fetch(finalUrl);
+      const blob = await response.blob();
+      finalBlob = new Blob([blob], { type: 'image/png' });
     } else if (file.type === 'application/pdf') {
       finalUrl = await embedMetadata(file, null, originalHash);
       finalBlob = await fetch(finalUrl).then(r => r.blob());
@@ -497,7 +500,7 @@ export const Certify: React.FC = () => {
 
                     <a 
                       href={processedImage || '#'} 
-                      download={`origynl-stamped.${isPDF ? 'pdf' : 'jpg'}`}
+                      download={`origynl-stamped-${files[0]?.file.name || 'document'}.${isPDF ? 'pdf' : 'png'}`}
                       className={`flex items-center justify-between w-full py-4 px-6 transition-colors text-xs uppercase tracking-widest font-bold ${certificateUrl ? 'border border-white/10 hover:bg-white/5 text-neutral-400' : 'bg-orange-600 hover:bg-orange-700 text-white'}`}
                     >
                       <span>Download Stamped File</span>
