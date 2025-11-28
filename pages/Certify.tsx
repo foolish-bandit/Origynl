@@ -114,12 +114,12 @@ export const Certify: React.FC = () => {
       <div className="p-6 md:p-16 border-b lg:border-b-0 lg:border-r border-white/5 flex flex-col justify-center">
         
         <div className="mb-8 md:mb-12">
-           <span className="text-orange-600 text-[10px] uppercase tracking-widest font-bold mb-2 block">Step 01</span>
-           <h1 className="font-serif text-3xl md:text-5xl text-white mb-4">Stamp & Seal</h1>
+           <span className="text-orange-600 text-[10px] uppercase tracking-widest font-bold mb-2 block">Document Certification</span>
+           <h1 className="font-serif text-3xl md:text-5xl text-white mb-4">Certify & Seal</h1>
            <p className="text-neutral-500 font-light max-w-sm text-sm md:text-base">
              {isLive 
-               ? "Witness Data detected. We will bind the sensor telemetry to the image hash for Tier-1 verification." 
-               : "Upload a contract, photo, or invoice. We will calculate the cryptographic hash and anchor it to the ledger."
+               ? "Live capture detected. Sensor telemetry will be cryptographically bound to establish authenticity at the moment of capture." 
+               : "Upload a contract, evidence photo, or any document. We'll create an immutable blockchain record proving it existed at this exact moment."
              }
            </p>
         </div>
@@ -203,11 +203,11 @@ export const Certify: React.FC = () => {
                   </div>
                 )}
                 
-                <h3 className="font-serif text-3xl text-white mb-2">Authenticated.</h3>
+                <h3 className="font-serif text-3xl text-white mb-2">Certified.</h3>
                 <p className="text-neutral-400 text-sm mb-6">
                   {isSimulation 
                     ? "Proof generated in local simulation mode. This record exists only in this browser."
-                    : "Proof anchored permanently to the Polygon Amoy Network."}
+                    : "This document is now permanently recorded on the Polygon blockchain. The certificate below serves as proof of existence at this timestamp."}
                 </p>
                 
                 <div className="flex flex-col gap-3">

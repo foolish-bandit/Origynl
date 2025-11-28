@@ -84,9 +84,9 @@ export const Verify: React.FC = () => {
     <div className="flex flex-col items-center justify-center min-h-[80vh] p-4 md:p-16 w-full max-w-7xl mx-auto">
       
       <div className="w-full max-w-2xl mb-8 md:mb-16 text-center space-y-4 px-4">
-        <h1 className="font-serif text-4xl md:text-6xl text-white">Registry Search</h1>
+        <h1 className="font-serif text-4xl md:text-6xl text-white">Verify Authenticity</h1>
         <p className="text-neutral-500 font-light text-sm md:text-base">
-          Verify the authenticity of any asset stamped by Origynl.
+          Check if a document has been certified. Upload the file or paste the transaction ID from the certificate.
         </p>
       </div>
 
@@ -270,9 +270,9 @@ export const Verify: React.FC = () => {
         {!isLoading && result.status === VerificationStatus.NOT_FOUND && (
           <div className="border border-red-900/50 bg-red-950/10 p-6 md:p-12 text-center">
              <X className="w-12 h-12 text-red-600 mx-auto mb-6 opacity-50" />
-             <h2 className="font-serif text-2xl md:text-3xl text-white mb-4">Verification Failed</h2>
+             <h2 className="font-serif text-2xl md:text-3xl text-white mb-4">Not Found</h2>
              <p className="text-neutral-400 text-sm max-w-xs mx-auto mb-8 leading-relaxed">
-               The file metadata does not contain a registered hash, or the visual content has been altered since notarization.
+               This document has not been certified with Origynl, or the file has been modified since certification.
              </p>
              <div className="font-mono text-[10px] text-neutral-500 uppercase">
                Checked Hash: <span className="text-red-400 break-all">{result.currentHash}</span>

@@ -13,8 +13,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   const navLinks = [
     { path: '/capture', label: 'Live Capture' },
-    { path: '/certify', label: 'Stamp' },
-    { path: '/verify', label: 'Registry' },
+    { path: '/certify', label: 'Certify' },
+    { path: '/verify', label: 'Verify' },
   ];
 
   return (
@@ -96,26 +96,27 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         <div className="md:col-span-2 space-y-6 md:space-y-8">
           <h1 className="font-serif text-4xl md:text-7xl leading-none text-neutral-800 select-none tracking-tight">ORIGYNL.</h1>
           <p className="text-neutral-600 max-w-sm text-sm">
-            Bridging the gap between creative expression and forensic certainty.
+            Cryptographic document certification for legal, insurance, and financial professionals. Prove authenticity before disputes arise.
           </p>
         </div>
         
         <div className="space-y-4 md:space-y-6 pt-2">
-          <h4 className="text-[10px] uppercase tracking-widest text-orange-600 font-bold">Protocol</h4>
+          <h4 className="text-[10px] uppercase tracking-widest text-orange-600 font-bold">Technology</h4>
           <ul className="space-y-2 text-sm text-neutral-500 font-mono">
-             <li>SHA-256 Compliance</li>
-             <li>Polygon PoS Ledger</li>
-             <li>ISO 19005 (PDF/A) Ready</li>
+             <li>SHA-256 Cryptographic Hash</li>
+             <li>Polygon Blockchain</li>
+             <li>Immutable Timestamps</li>
              <li>Zero-Knowledge Privacy</li>
           </ul>
         </div>
 
         <div className="space-y-4 md:space-y-6 pt-2">
-          <h4 className="text-[10px] uppercase tracking-widest text-orange-600 font-bold">Governance</h4>
+          <h4 className="text-[10px] uppercase tracking-widest text-orange-600 font-bold">Industries</h4>
           <ul className="space-y-2 text-sm text-neutral-500 font-mono">
-             <li className="hover:text-white cursor-pointer transition-colors">Legal Terms</li>
-             <li className="hover:text-white cursor-pointer transition-colors">Audit Reports</li>
-             <li className="hover:text-white cursor-pointer transition-colors">Enterprise API</li>
+             <li>Legal & Law Firms</li>
+             <li>Insurance</li>
+             <li>Accounting & Audit</li>
+             <li>Real Estate</li>
           </ul>
         </div>
       </footer>
