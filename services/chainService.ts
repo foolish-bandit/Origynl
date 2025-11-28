@@ -6,9 +6,10 @@ import { polygonAmoy } from 'viem/chains';
  * BLOCKCHAIN SERVICE ADAPTER
  * 
  * Architecture:
- * 1. Hybrid Verification: Frontend checks Polygon RPC directly (read-only).
- * 2. Vercel Serverless: /api/certify handles chain writes via serverless functions.
- * 3. No demo mode - production only.
+ * 1. Hybrid Verification: Frontend checks Polygon RPC directly (read-only) for file hashes.
+ * 2. Transaction Lookup: For TX hashes, we call /api/verify to decode the embedded file hash.
+ * 3. Vercel Serverless: /api/certify handles chain writes via serverless functions.
+ * 4. No demo mode - production only.
  */
 
 const CONTRACT_ADDRESS = '0x894C98bf09B4e9e4FEd3612803920b7d82C59d41';
@@ -23,9 +24,38 @@ const ABI = parseAbi([
   'function verify(string calldata _hash) external view returns (bool, uint256, address)'
 ]);
 
+// Check if a string looks like a transaction hash (0x + 64 hex chars)
+const isTransactionHash = (hash: string): boolean => {
+  return hash.startsWith('0x') && hash.length === 66;
+};
+
 export const findRecordByHash = async (hash: string): Promise<ChainRecord | null> => {
   try {
-    // Direct blockchain read
+    // If it looks like a transaction hash, use the API to decode it
+    if (isTransactionHash(hash)) {
+      console.log('Detected transaction hash, using API to decode...');
+      const response = await fetch(`/api/verify?hash=${encodeURIComponent(hash)}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          hash: data.hash,
+          timestamp: data.timestamp,
+          blockHeight: data.blockHeight || 0,
+          sender: data.sender,
+          fileName: data.fileName || 'On-Chain Asset',
+          provenanceType: data.provenanceType || 'UPLOAD',
+          txHash: hash,
+          isSimulation: false
+        };
+      } else if (response.status === 404) {
+        return null;
+      } else {
+        throw new Error('API lookup failed');
+      }
+    }
+
+    // Otherwise, do a direct blockchain read for file hashes
     const [exists, timestamp, sender] = await publicClient.readContract({
       address: CONTRACT_ADDRESS,
       abi: ABI,

@@ -102,7 +102,7 @@ export const Verify: React.FC = () => {
                <Search className="text-neutral-600 shrink-0" size={20} />
                <input 
                  type="text" 
-                 placeholder="Hash ID or Ledger Ref..." 
+                 placeholder="File hash or transaction ID (0x...)..." 
                  className="bg-transparent w-full py-3 md:py-4 text-white placeholder-neutral-700 font-mono text-sm focus:outline-none"
                  value={inputHash}
                  onChange={(e) => setInputHash(e.target.value)}
