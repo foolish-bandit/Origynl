@@ -111,12 +111,12 @@ export const Certify: React.FC = () => {
     <div className="grid lg:grid-cols-2 min-h-screen">
       
       {/* Left Panel */}
-      <div className="p-8 md:p-16 border-b lg:border-b-0 lg:border-r border-white/5 flex flex-col justify-center">
+      <div className="p-6 md:p-16 border-b lg:border-b-0 lg:border-r border-white/5 flex flex-col justify-center">
         
-        <div className="mb-12">
+        <div className="mb-8 md:mb-12">
            <span className="text-orange-600 text-[10px] uppercase tracking-widest font-bold mb-2 block">Step 01</span>
-           <h1 className="font-serif text-5xl text-white mb-4">Stamp & Seal</h1>
-           <p className="text-neutral-500 font-light max-w-sm">
+           <h1 className="font-serif text-3xl md:text-5xl text-white mb-4">Stamp & Seal</h1>
+           <p className="text-neutral-500 font-light max-w-sm text-sm md:text-base">
              {isLive 
                ? "Witness Data detected. We will bind the sensor telemetry to the image hash for Tier-1 verification." 
                : "Upload a contract, photo, or invoice. We will calculate the cryptographic hash and anchor it to the ledger."
@@ -125,20 +125,20 @@ export const Certify: React.FC = () => {
         </div>
 
         {error && (
-          <div className="mb-8 p-4 bg-red-900/20 border border-red-900/50 flex items-start gap-4">
+          <div className="mb-6 md:mb-8 p-4 bg-red-900/20 border border-red-900/50 flex items-start gap-4">
             <AlertTriangle className="text-red-500 shrink-0" size={20} />
-            <div className="space-y-1">
+            <div className="space-y-1 min-w-0">
               <h4 className="text-red-500 font-bold text-xs uppercase tracking-widest">Process Error</h4>
-              <p className="text-red-400 text-xs font-mono">{error}</p>
+              <p className="text-red-400 text-xs font-mono break-all">{error}</p>
             </div>
           </div>
         )}
 
         {status === 'IDLE' && (
-          <div className="space-y-8">
+          <div className="space-y-6 md:space-y-8">
             <div 
               onClick={() => fileInputRef.current?.click()}
-              className={`group border border-dashed hover:border-orange-600 hover:bg-white/5 transition-all duration-500 aspect-video md:aspect-square lg:aspect-[4/3] flex flex-col items-center justify-center cursor-pointer relative ${isLive ? 'border-orange-600/50 bg-orange-900/5' : 'border-neutral-800'}`}
+              className={`group border border-dashed hover:border-orange-600 hover:bg-white/5 transition-all duration-500 aspect-[4/3] md:aspect-square lg:aspect-[4/3] flex flex-col items-center justify-center cursor-pointer relative ${isLive ? 'border-orange-600/50 bg-orange-900/5' : 'border-neutral-800'}`}
             >
               <input 
                 type="file" 
@@ -148,22 +148,22 @@ export const Certify: React.FC = () => {
                 accept="image/jpeg,image/png,application/pdf"
               />
               {file ? (
-                <div className="text-center z-10 p-8">
+                <div className="text-center z-10 p-4 md:p-8">
                    {isLive && (
                      <div className="inline-flex items-center gap-2 px-3 py-1 bg-orange-600/20 border border-orange-600/50 rounded-full mb-4">
                        <Radio size={12} className="text-orange-500 animate-pulse" />
                        <span className="text-[10px] text-orange-400 font-bold uppercase tracking-widest">Live Capture Data</span>
                      </div>
                    )}
-                   <p className="font-serif text-2xl text-white italic mb-2 break-all">{file.name}</p>
+                   <p className="font-serif text-xl md:text-2xl text-white italic mb-2 break-all">{file.name}</p>
                    <p className="font-mono text-[10px] text-neutral-500 uppercase tracking-widest">{file.type} • {(file.size / 1024 / 1024).toFixed(2)} MB</p>
                 </div>
               ) : (
                 <div className="text-center space-y-4">
-                  <div className="w-16 h-16 rounded-full border border-neutral-800 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform duration-500">
-                    <Upload className="w-6 h-6 text-neutral-500 group-hover:text-orange-600 transition-colors" />
+                  <div className="w-14 h-14 md:w-16 md:h-16 rounded-full border border-neutral-800 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform duration-500">
+                    <Upload className="w-5 h-5 md:w-6 md:h-6 text-neutral-500 group-hover:text-orange-600 transition-colors" />
                   </div>
-                  <p className="text-neutral-500 text-xs tracking-widest uppercase">Drop File Here</p>
+                  <p className="text-neutral-500 text-xs tracking-widest uppercase">Tap to Select File</p>
                 </div>
               )}
             </div>
@@ -171,7 +171,7 @@ export const Certify: React.FC = () => {
             <button 
                onClick={startProcess}
                disabled={!file}
-               className="w-full py-6 bg-white hover:bg-neutral-200 disabled:bg-neutral-900 disabled:text-neutral-700 disabled:cursor-not-allowed text-black transition-all duration-300 uppercase tracking-widest text-xs font-bold flex justify-between px-8"
+               className="w-full py-5 md:py-6 bg-white hover:bg-neutral-200 disabled:bg-neutral-900 disabled:text-neutral-700 disabled:cursor-not-allowed text-black transition-all duration-300 uppercase tracking-widest text-xs font-bold flex justify-between px-6 md:px-8"
              >
                <span>Initialize {isLive ? 'Witness Seal' : 'Stamp'}</span>
                <ArrowRight size={16} />
@@ -234,10 +234,18 @@ export const Certify: React.FC = () => {
       </div>
 
       {/* Right Panel: Output */}
-      <div className="bg-neutral-900/30 p-8 md:p-16 flex flex-col relative overflow-hidden">
+      <div className="bg-neutral-900/30 p-4 md:p-16 flex flex-col relative overflow-hidden min-h-[50vh] lg:min-h-0">
         <div className="relative z-10 flex-1 flex items-center justify-center border border-white/5 bg-neutral-950/50 backdrop-blur-sm p-4 shadow-2xl">
            {processedImage ? (
-             <img src={processedImage} alt="Preview" className="max-w-full max-h-[60vh] object-contain shadow-2xl border border-white/5" />
+             isPDF ? (
+               <div className="text-center space-y-4">
+                 <FileText className="w-16 h-16 text-orange-600 mx-auto" />
+                 <p className="text-white font-serif text-xl">PDF Stamped</p>
+                 <p className="text-neutral-500 text-xs">Download to view</p>
+               </div>
+             ) : (
+               <img src={processedImage} alt="Preview" className="max-w-full max-h-[40vh] md:max-h-[60vh] object-contain shadow-2xl border border-white/5" />
+             )
            ) : (
              <div className="text-center text-neutral-700 space-y-2">
                <span className="font-serif text-4xl text-neutral-800 opacity-50">O.</span>
@@ -246,18 +254,18 @@ export const Certify: React.FC = () => {
            )}
         </div>
 
-        <div className="mt-8 pt-8 border-t border-white/5 font-mono text-[10px] text-neutral-500 grid grid-cols-2 gap-4">
-           <div>
+        <div className="mt-4 md:mt-8 pt-4 md:pt-8 border-t border-white/5 font-mono text-[10px] text-neutral-500 grid grid-cols-1 md:grid-cols-2 gap-4">
+           <div className="min-w-0">
              <span className="block text-neutral-600 uppercase mb-1 font-bold">SHA-256 Checksum</span>
-             <span className="block text-neutral-400 break-all">{hash || "—"}</span>
+             <span className="block text-neutral-400 break-all text-[9px] md:text-[10px]">{hash || "—"}</span>
            </div>
-           <div>
+           <div className="min-w-0">
              <span className="block text-neutral-600 uppercase mb-1 font-bold">Ledger Ref</span>
              {txId ? (
                isSimulation ? (
                  <div className="flex flex-col gap-1">
                    <span className="text-yellow-500 font-bold">SIMULATED ID (LOCAL)</span>
-                   <span className="block text-neutral-500 break-all opacity-50">{txId}</span>
+                   <span className="block text-neutral-500 break-all opacity-50 text-[9px]">{txId}</span>
                  </div>
                ) : (
                  <a 
@@ -266,7 +274,7 @@ export const Certify: React.FC = () => {
                    rel="noopener noreferrer"
                    className="flex items-center gap-2 text-orange-600 hover:text-orange-500 transition-colors break-all group"
                  >
-                   <span className="line-clamp-1">{txId}</span>
+                   <span className="line-clamp-1 text-[9px] md:text-[10px]">{txId}</span>
                    <ExternalLink size={10} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
                  </a>
                )
