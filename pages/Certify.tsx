@@ -139,30 +139,51 @@ export const Certify: React.FC = () => {
     setFiles(prev => prev.map((f, i) => i === 0 ? { ...f, status: 'reading' } : f));
     await new Promise(r => setTimeout(r, 300));
 
-    // Step 2: Computing fingerprint
+    // Step 2: Create the stamped version first (for images)
+    setStatus('APPLYING_WATERMARK');
+    let finalUrl: string;
+    let finalBlob: Blob;
+    let originalHash: string;
+
+    if (isLive && sensorData) {
+      originalHash = await computeCompositeHash(file, sensorData);
+    } else {
+      originalHash = await computeFileHash(file);
+    }
+
+    if (file.type.startsWith('image/')) {
+      const stampText = isLive ? `LIVE PROOF: ${originalHash}` : originalHash;
+      const watermarkedUrl = await embedWatermark(file, stampText);
+      finalUrl = await embedMetadata(file, watermarkedUrl, originalHash);
+      finalBlob = await fetch(finalUrl).then(r => r.blob());
+    } else if (file.type === 'application/pdf') {
+      finalUrl = await embedMetadata(file, null, originalHash);
+      finalBlob = await fetch(finalUrl).then(r => r.blob());
+    } else {
+      finalUrl = URL.createObjectURL(file);
+      finalBlob = file;
+    }
+
+    // Step 3: Hash the FINAL stamped file - this is what gets verified
     setStatus('COMPUTING_FINGERPRINT');
     setFiles(prev => prev.map((f, i) => i === 0 ? { ...f, status: 'hashing' } : f));
     
-    let finalHash: string;
-    if (isLive && sensorData) {
-      finalHash = await computeCompositeHash(file, sensorData);
-    } else {
-      finalHash = await computeFileHash(file);
-    }
+    const stampedFile = new File([finalBlob], file.name, { type: finalBlob.type });
+    const finalHash = await computeFileHash(stampedFile);
     
     setHash(finalHash);
     setFiles(prev => prev.map((f, i) => i === 0 ? { ...f, hash: finalHash, status: 'done' } : f));
 
-    // Step 3: Connecting to blockchain
+    // Step 4: Connecting to blockchain
     setStatus('CONNECTING_BLOCKCHAIN');
     await new Promise(r => setTimeout(r, 200));
 
-    // Step 4: Waiting for confirmation
+    // Step 5: Write the STAMPED file's hash to blockchain
     setStatus('WAITING_CONFIRMATION');
     const geoTag = sensorData?.gps ? `${sensorData.gps.lat.toFixed(4)},${sensorData.gps.lng.toFixed(4)}` : undefined;
     
     const chainRecord = await writeHashToChain(
-      finalHash, 
+      finalHash,  // Hash of the stamped file
       file.name, 
       isLive ? 'LIVE_CAPTURE' : 'UPLOAD',
       geoTag
@@ -172,7 +193,7 @@ export const Certify: React.FC = () => {
     setTimestamp(chainRecord.timestamp || Date.now());
     setIsSimulation(!!chainRecord.isSimulation);
 
-    // Step 5: Generate PDF certificate
+    // Step 6: Generate PDF certificate
     setStatus('GENERATING_CERTIFICATE');
     if (!chainRecord.isSimulation && chainRecord.txHash) {
       const certBlob = await generateCertificate({
@@ -186,20 +207,7 @@ export const Certify: React.FC = () => {
       setCertificateUrl(URL.createObjectURL(certBlob));
     }
 
-    // Step 6: Applying watermark
-    setStatus('APPLYING_WATERMARK');
-    
-    let finalUrl: string;
-    if (file.type.startsWith('image/')) {
-      const stampText = isLive ? `LIVE PROOF: ${finalHash}` : finalHash;
-      const watermarkedUrl = await embedWatermark(file, stampText);
-      finalUrl = await embedMetadata(file, watermarkedUrl, finalHash);
-    } else if (file.type === 'application/pdf') {
-      finalUrl = await embedMetadata(file, null, finalHash);
-    } else {
-      finalUrl = URL.createObjectURL(file);
-    }
-
+    // Use the already-created stamped file
     setProcessedImage(finalUrl);
     setStatus('COMPLETE');
   };

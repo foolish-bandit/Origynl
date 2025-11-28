@@ -2,20 +2,25 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Webcam from 'react-webcam';
 import { useNavigate } from 'react-router-dom';
-import { Camera, MapPin, Zap, AlertTriangle, ShieldCheck, SwitchCamera, Lock } from 'lucide-react';
+import { Camera, MapPin, Zap, AlertTriangle, ShieldCheck, SwitchCamera, Lock, Monitor, Smartphone } from 'lucide-react';
 import { SensorData } from '../types';
+
+type CaptureMode = 'select' | 'camera' | 'screen';
 
 export const Capture: React.FC = () => {
   const navigate = useNavigate();
   const webcamRef = useRef<Webcam>(null);
+  const [mode, setMode] = useState<CaptureMode>('select');
   const [sensors, setSensors] = useState<SensorData>({ timestamp: 0 });
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("environment");
   const [gyroVis, setGyroVis] = useState({ x: 0, y: 0 });
+  const [screenPreview, setScreenPreview] = useState<string | null>(null);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
+  const screenVideoRef = useRef<HTMLVideoElement>(null);
 
   const requestPermissions = () => {
-    // 1. Request GPS
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
@@ -31,13 +36,11 @@ export const Capture: React.FC = () => {
         (err) => console.log("GPS Denied", err)
       );
     }
-
-    // 2. Start Motion Simulation (Mock)
     setPermissionGranted(true);
   };
 
   useEffect(() => {
-    if (!permissionGranted) return;
+    if (!permissionGranted || mode !== 'camera') return;
 
     const interval = setInterval(() => {
       setGyroVis({
@@ -55,9 +58,9 @@ export const Capture: React.FC = () => {
     }, 100);
 
     return () => clearInterval(interval);
-  }, [permissionGranted]);
+  }, [permissionGranted, mode]);
 
-  const handleCapture = useCallback(() => {
+  const handleCameraCapture = useCallback(() => {
     setCapturing(true);
     
     setTimeout(() => {
@@ -79,37 +82,244 @@ export const Capture: React.FC = () => {
     }, 600); 
   }, [webcamRef, navigate, sensors]);
 
+  const startScreenCapture = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { 
+          displaySurface: 'monitor',
+        },
+        audio: false
+      });
+      
+      setScreenStream(stream);
+      setMode('screen');
+
+      // Handle when user stops sharing via browser UI
+      stream.getVideoTracks()[0].onended = () => {
+        setMode('select');
+        setScreenStream(null);
+        setScreenPreview(null);
+      };
+
+      // Wait for video to be ready
+      if (screenVideoRef.current) {
+        screenVideoRef.current.srcObject = stream;
+        await screenVideoRef.current.play();
+      }
+    } catch (err) {
+      console.error('Screen capture error:', err);
+    }
+  };
+
+  const captureScreen = async () => {
+    if (!screenVideoRef.current || !screenStream) return;
+    
+    setCapturing(true);
+
+    const video = screenVideoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.drawImage(video, 0, 0);
+    }
+
+    // Stop the stream
+    screenStream.getTracks().forEach(track => track.stop());
+    setScreenStream(null);
+
+    // Convert to file and navigate
+    canvas.toBlob((blob) => {
+      if (blob) {
+        const file = new File([blob], `screen_capture_${Date.now()}.png`, { type: 'image/png' });
+        navigate('/certify', {
+          state: {
+            file,
+            sensorData: { timestamp: Date.now() },
+            isLiveCapture: true
+          }
+        });
+      }
+    }, 'image/png');
+  };
+
+  const cancelScreenCapture = () => {
+    if (screenStream) {
+      screenStream.getTracks().forEach(track => track.stop());
+    }
+    setScreenStream(null);
+    setScreenPreview(null);
+    setMode('select');
+  };
+
   const toggleCamera = () => {
     setFacingMode(prev => prev === "environment" ? "user" : "environment");
   };
 
-  if (!permissionGranted) {
+  // Check if screen capture is supported
+  const isScreenCaptureSupported = typeof navigator !== 'undefined' && 
+    navigator.mediaDevices && 
+    'getDisplayMedia' in navigator.mediaDevices;
+
+  // Mode selection screen
+  if (mode === 'select') {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-8 text-center">
-        <div className="w-20 h-20 bg-neutral-900 rounded-full flex items-center justify-center mb-8 border border-white/10">
-          <Lock className="text-orange-600" size={32} />
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-8">
+        <div className="max-w-lg w-full space-y-8">
+          <div className="text-center mb-12">
+            <h2 className="font-serif text-3xl md:text-4xl text-white mb-4">Live Capture</h2>
+            <p className="text-neutral-500 max-w-md mx-auto leading-relaxed">
+              Capture and certify in real-time. Prove that content existed at this exact moment.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {/* Camera option */}
+            <button
+              onClick={() => {
+                requestPermissions();
+                setMode('camera');
+              }}
+              className="w-full p-6 bg-neutral-900 border border-white/10 hover:border-orange-600 transition-all group text-left"
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-full bg-neutral-800 group-hover:bg-orange-600/20 flex items-center justify-center transition-colors">
+                  <Camera className="text-neutral-400 group-hover:text-orange-600 transition-colors" size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-white font-bold mb-1">Camera Capture</h3>
+                  <p className="text-neutral-500 text-sm">
+                    Photograph a document, scene, or object. Includes GPS location and motion data for enhanced proof.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3">
+                    <Smartphone size={12} className="text-neutral-600" />
+                    <span className="text-[10px] text-neutral-600 uppercase tracking-widest">Mobile & Desktop</span>
+                  </div>
+                </div>
+              </div>
+            </button>
+
+            {/* Screen capture option */}
+            <button
+              onClick={startScreenCapture}
+              disabled={!isScreenCaptureSupported}
+              className={`w-full p-6 bg-neutral-900 border transition-all group text-left ${
+                isScreenCaptureSupported 
+                  ? 'border-white/10 hover:border-orange-600' 
+                  : 'border-white/5 opacity-50 cursor-not-allowed'
+              }`}
+            >
+              <div className="flex items-start gap-4">
+                <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+                  isScreenCaptureSupported 
+                    ? 'bg-neutral-800 group-hover:bg-orange-600/20' 
+                    : 'bg-neutral-900'
+                }`}>
+                  <Monitor className={`transition-colors ${
+                    isScreenCaptureSupported 
+                      ? 'text-neutral-400 group-hover:text-orange-600' 
+                      : 'text-neutral-700'
+                  }`} size={24} />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-white font-bold mb-1">Screen Capture</h3>
+                  <p className="text-neutral-500 text-sm">
+                    Capture what's on your screen — a webpage, document, email, or chat. Prove what you saw at this moment.
+                  </p>
+                  <div className="flex items-center gap-2 mt-3">
+                    {isScreenCaptureSupported ? (
+                      <>
+                        <Monitor size={12} className="text-neutral-600" />
+                        <span className="text-[10px] text-neutral-600 uppercase tracking-widest">Desktop Only</span>
+                      </>
+                    ) : (
+                      <>
+                        <AlertTriangle size={12} className="text-yellow-600" />
+                        <span className="text-[10px] text-yellow-600 uppercase tracking-widest">Not supported on this device</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </button>
+          </div>
+
+          <p className="text-center text-neutral-600 text-xs">
+            All captures are processed locally. Nothing is uploaded until you certify.
+          </p>
         </div>
-        <h2 className="font-serif text-3xl text-white mb-4">Secure Environment</h2>
-        <p className="text-neutral-500 max-w-md mb-12 leading-relaxed">
-          To generate a cryptographic proof of liveness, Origynl requires access to your camera and location sensors. Data is processed locally.
-        </p>
-        <button 
-          onClick={requestPermissions}
-          className="bg-orange-600 text-white px-8 py-4 font-bold uppercase tracking-widest hover:bg-orange-700 transition-colors rounded-sm"
-        >
-          Initialize Secure Session
-        </button>
       </div>
     );
   }
 
+  // Screen capture mode
+  if (mode === 'screen') {
+    return (
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 md:p-8">
+        <div className="w-full max-w-5xl">
+          
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
+              <span className="font-mono text-sm text-white uppercase tracking-widest">Screen Capture Active</span>
+            </div>
+            <button
+              onClick={cancelScreenCapture}
+              className="text-neutral-500 hover:text-white text-sm transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+
+          <div className="relative bg-neutral-900 border border-white/10 overflow-hidden">
+            <video
+              ref={screenVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className="w-full h-auto max-h-[70vh] object-contain"
+            />
+            
+            {/* Capture overlay */}
+            <div className={`absolute inset-0 bg-white pointer-events-none transition-opacity duration-200 ${capturing ? 'opacity-100' : 'opacity-0'}`}></div>
+          </div>
+
+          <div className="mt-8 flex flex-col items-center gap-4">
+            <button
+              onClick={captureScreen}
+              disabled={capturing}
+              className="px-12 py-5 bg-orange-600 hover:bg-orange-700 text-white font-bold uppercase tracking-widest transition-colors disabled:opacity-50"
+            >
+              Capture & Certify
+            </button>
+            <p className="text-neutral-600 text-xs text-center max-w-md">
+              Click the button above to capture the current screen content. The capture will be timestamped and certified on the blockchain.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Camera mode (existing code)
   return (
     <div className="min-h-[100dvh] bg-black relative flex flex-col md:justify-center overflow-hidden pb-20 md:pb-0">
       
       {/* Mobile Top Bar */}
       <div className="md:hidden w-full h-16 bg-neutral-900 border-b border-white/10 flex items-center justify-between px-6 z-20">
-         <span className="font-serif text-xl font-bold">Origynl.</span>
+         <button onClick={() => setMode('select')} className="text-neutral-500 hover:text-white text-sm">
+           ← Back
+         </button>
          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+      </div>
+
+      {/* Desktop back button */}
+      <div className="hidden md:block absolute top-8 left-8 z-30">
+        <button onClick={() => setMode('select')} className="text-neutral-500 hover:text-white text-sm">
+          ← Back to options
+        </button>
       </div>
 
       {/* Viewfinder Container */}
@@ -193,7 +403,7 @@ export const Capture: React.FC = () => {
          </button>
 
          <button 
-           onClick={handleCapture}
+           onClick={handleCameraCapture}
            disabled={capturing}
            className="w-20 h-20 rounded-full border-4 border-white/20 flex items-center justify-center hover:border-orange-600 transition-colors group active:scale-95"
          >
