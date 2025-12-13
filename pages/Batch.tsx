@@ -350,8 +350,8 @@ export const Batch: React.FC = () => {
             <div className="p-4 bg-neutral-900/50 border border-white/5 space-y-3">
               <div>
                 <span className="text-xs text-neutral-600 uppercase tracking-widest">Transaction ID</span>
-                <a 
-                  href={`https://amoy.polygonscan.com/tx/${result.txHash}`}
+                <a
+                  href={`https://polygonscan.com/tx/${result.txHash}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="block text-sm text-orange-600 hover:text-orange-500 font-mono truncate"

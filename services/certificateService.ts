@@ -264,7 +264,7 @@ export const generateCertificate = async (data: CertificateData): Promise<Blob> 
     color: black,
   });
   
-  const explorerUrl = `https://amoy.polygonscan.com/tx/${data.txHash}`;
+  const explorerUrl = `https://polygonscan.com/tx/${data.txHash}`;
   page.drawText(explorerUrl, {
     x: 60,
     y: height - 630,
@@ -579,7 +579,7 @@ export const generateBatchCertificate = async (data: BatchCertificateData): Prom
   page.drawText('View transaction: ', {
     x: 60, y: height - 715, size: 8, font: helvetica, color: black,
   });
-  page.drawText(`https://amoy.polygonscan.com/tx/${data.txHash}`, {
+  page.drawText(`https://polygonscan.com/tx/${data.txHash}`, {
     x: 140, y: height - 715, size: 6, font: courier, color: orange,
   });
 

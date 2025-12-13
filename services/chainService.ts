@@ -1,23 +1,28 @@
 import { ChainRecord } from '../types';
 import { createPublicClient, http, parseAbi } from 'viem';
-import { polygonAmoy } from 'viem/chains';
+import { polygon } from 'viem/chains';
 
 /**
- * BLOCKCHAIN SERVICE ADAPTER
- * 
+ * BLOCKCHAIN SERVICE ADAPTER - Polygon Mainnet
+ *
  * Architecture:
  * 1. Hybrid Verification: Frontend checks Polygon RPC directly (read-only) for file hashes.
  * 2. Transaction Lookup: For TX hashes, we call /api/verify to decode the embedded file hash.
  * 3. Vercel Serverless: /api/certify handles chain writes via serverless functions.
- * 4. No demo mode - production only.
+ * 4. Production blockchain - low cost (~$0.01/tx), 2 second confirmation.
+ *
+ * IMPORTANT: Contract must be deployed to Polygon Mainnet at this address.
+ * To deploy: Use Remix, Hardhat, or Foundry with mainnet RPC.
+ * Update CONTRACT_ADDRESS below with the deployed contract address.
  */
 
+// TODO: Replace with actual mainnet contract address after deployment
 const CONTRACT_ADDRESS = '0x894C98bf09B4e9e4FEd3612803920b7d82C59d41';
 
-// Direct RPC for Frontend Verification
+// Polygon Mainnet RPC
 const publicClient = createPublicClient({
-  chain: polygonAmoy,
-  transport: http('https://rpc-amoy.polygon.technology')
+  chain: polygon,
+  transport: http('https://polygon-rpc.com')
 });
 
 const ABI = parseAbi([

@@ -2,20 +2,20 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createWalletClient, createPublicClient, http, parseAbi } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-// Manual chain definition (polygonAmoy not always exported cleanly)
-const polygonAmoy = {
-  id: 80002,
-  name: 'Polygon Amoy',
-  network: 'polygon-amoy',
+// Polygon Mainnet chain definition
+const polygonMainnet = {
+  id: 137,
+  name: 'Polygon',
+  network: 'polygon',
   nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 },
   rpcUrls: {
-    default: { http: ['https://rpc-amoy.polygon.technology'] },
-    public: { http: ['https://rpc-amoy.polygon.technology'] },
+    default: { http: ['https://polygon-rpc.com'] },
+    public: { http: ['https://polygon-rpc.com'] },
   },
   blockExplorers: {
-    default: { name: 'PolygonScan', url: 'https://amoy.polygonscan.com' },
+    default: { name: 'PolygonScan', url: 'https://polygonscan.com' },
   },
-  testnet: true,
+  testnet: false,
 } as const;
 
 const ABI = parseAbi([
@@ -23,7 +23,7 @@ const ABI = parseAbi([
   'function verify(string calldata _hash) external view returns (bool, uint256, address)'
 ]);
 
-const RPC_URL = 'https://rpc-amoy.polygon.technology';
+const RPC_URL = 'https://polygon-rpc.com';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS headers
@@ -70,13 +70,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
 
     const publicClient = createPublicClient({
-      chain: polygonAmoy,
+      chain: polygonMainnet,
       transport: http(RPC_URL)
     });
 
     const walletClient = createWalletClient({
       account,
-      chain: polygonAmoy,
+      chain: polygonMainnet,
       transport: http(RPC_URL)
     });
 
@@ -101,7 +101,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       functionName: 'certify',
       args: [hash],
       account,
-      chain: polygonAmoy,
+      chain: polygonMainnet,
     });
 
     const txHash = await walletClient.writeContract(request as any);

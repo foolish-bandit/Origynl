@@ -1,20 +1,20 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createPublicClient, http, parseAbi, decodeFunctionData } from 'viem';
 
-// Manual chain definition
-const polygonAmoy = {
-  id: 80002,
-  name: 'Polygon Amoy',
-  network: 'polygon-amoy',
+// Polygon Mainnet chain definition
+const polygonMainnet = {
+  id: 137,
+  name: 'Polygon',
+  network: 'polygon',
   nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 },
   rpcUrls: {
-    default: { http: ['https://rpc-amoy.polygon.technology'] },
-    public: { http: ['https://rpc-amoy.polygon.technology'] },
+    default: { http: ['https://polygon-rpc.com'] },
+    public: { http: ['https://polygon-rpc.com'] },
   },
   blockExplorers: {
-    default: { name: 'PolygonScan', url: 'https://amoy.polygonscan.com' },
+    default: { name: 'PolygonScan', url: 'https://polygonscan.com' },
   },
-  testnet: true,
+  testnet: false,
 } as const;
 
 const ABI = parseAbi([
@@ -22,7 +22,7 @@ const ABI = parseAbi([
   'function verify(string calldata _hash) external view returns (bool, uint256, address)'
 ]);
 
-const RPC_URL = 'https://rpc-amoy.polygon.technology';
+const RPC_URL = 'https://polygon-rpc.com';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS headers
@@ -56,7 +56,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   try {
     const publicClient = createPublicClient({
-      chain: polygonAmoy,
+      chain: polygonMainnet,
       transport: http(RPC_URL)
     });
 

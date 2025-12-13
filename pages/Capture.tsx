@@ -19,6 +19,8 @@ export const Capture: React.FC = () => {
   const [screenPreview, setScreenPreview] = useState<string | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const screenVideoRef = useRef<HTMLVideoElement>(null);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [livenessCheck, setLivenessCheck] = useState(false);
 
   const requestPermissions = () => {
     if (navigator.geolocation) {
@@ -61,25 +63,41 @@ export const Capture: React.FC = () => {
   }, [permissionGranted, mode]);
 
   const handleCameraCapture = useCallback(() => {
-    setCapturing(true);
-    
-    setTimeout(() => {
-      const imageSrc = webcamRef.current?.getScreenshot();
-      if (imageSrc) {
-        fetch(imageSrc)
-          .then(res => res.blob())
-          .then(blob => {
-            const file = new File([blob], `live_capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
-            navigate('/certify', { 
-              state: { 
-                file, 
-                sensorData: { ...sensors, timestamp: Date.now() },
-                isLiveCapture: true 
-              } 
-            });
-          });
+    // Start countdown
+    setCountdown(3);
+    setLivenessCheck(true);
+
+    // Countdown timer
+    let count = 3;
+    const countdownInterval = setInterval(() => {
+      count--;
+      setCountdown(count);
+
+      if (count === 0) {
+        clearInterval(countdownInterval);
+        setCapturing(true);
+        setLivenessCheck(false);
+
+        // Take picture after countdown
+        setTimeout(() => {
+          const imageSrc = webcamRef.current?.getScreenshot();
+          if (imageSrc) {
+            fetch(imageSrc)
+              .then(res => res.blob())
+              .then(blob => {
+                const file = new File([blob], `live_capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
+                navigate('/certify', {
+                  state: {
+                    file,
+                    sensorData: { ...sensors, timestamp: Date.now() },
+                    isLiveCapture: true
+                  }
+                });
+              });
+          }
+        }, 200);
       }
-    }, 600); 
+    }, 1000);
   }, [webcamRef, navigate, sensors]);
 
   // Handle screen stream binding when mode changes
@@ -343,13 +361,13 @@ export const Capture: React.FC = () => {
 
         {/* HUD Overlay */}
         <div className="absolute inset-0 pointer-events-none p-6 md:p-12 flex flex-col justify-between z-10">
-          
+
           <div className="flex justify-between items-start">
              <div className="space-y-1">
                <div className="flex items-center gap-2">
-                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                 <div className={`w-2 h-2 rounded-full ${livenessCheck ? 'bg-orange-500' : 'bg-green-500'} animate-pulse`}></div>
                  <span className="font-mono text-[10px] text-white uppercase tracking-widest bg-black/50 px-2 py-1">
-                   Witness Mode: Active
+                   {livenessCheck ? 'Liveness Check' : 'Witness Mode: Active'}
                  </span>
                </div>
                {sensors.gps && (
@@ -361,13 +379,25 @@ export const Capture: React.FC = () => {
              </div>
           </div>
 
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 border border-white/20 flex items-center justify-center">
-             <div className="w-1 h-1 bg-white/50"></div>
-             <div 
-               className="absolute w-24 h-px bg-orange-600/50 transition-transform duration-100"
-               style={{ transform: `rotate(${gyroVis.x * 5}deg) translateY(${gyroVis.y * 5}px)` }}
-             ></div>
-          </div>
+          {/* Countdown Overlay */}
+          {countdown !== null && countdown > 0 ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/60 z-50">
+              <div className="text-center">
+                <div className="text-9xl font-bold text-white mb-4 animate-pulse">
+                  {countdown}
+                </div>
+                <p className="text-white text-lg uppercase tracking-widest">Hold still...</p>
+              </div>
+            </div>
+          ) : (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 border border-white/20 flex items-center justify-center">
+               <div className="w-1 h-1 bg-white/50"></div>
+               <div
+                 className="absolute w-24 h-px bg-orange-600/50 transition-transform duration-100"
+                 style={{ transform: `rotate(${gyroVis.x * 5}deg) translateY(${gyroVis.y * 5}px)` }}
+               ></div>
+            </div>
+          )}
 
           <div className="flex justify-between items-end">
             <div className="font-mono text-[9px] text-neutral-500 space-y-1 bg-black/50 p-2">

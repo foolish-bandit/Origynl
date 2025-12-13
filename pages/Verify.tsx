@@ -1,11 +1,13 @@
 
 import React, { useState, useRef } from 'react';
-import { Search, Check, X, Upload, ShieldCheck, ExternalLink, MapPin, Radio, FileSearch, Zap, FileCheck, Database, FileText, Bot, Sparkles } from 'lucide-react';
+import { Search, Check, X, Upload, ShieldCheck, ExternalLink, MapPin, Radio, FileSearch, Zap, FileCheck, Database, FileText, Bot, Sparkles, QrCode } from 'lucide-react';
 import { computeFileHash } from '../services/hashService';
 import { findRecordByHash } from '../services/chainService';
 import { extractHashFromMetadata } from '../services/imageService';
 import { analyzeAuthenticity, AuthenticityAnalysis } from '../services/authenticityService';
 import { AuthenticityReport } from '../components/AuthenticityReport';
+import { QRScanner } from '../components/QRScanner';
+import { QRCodeData } from '../services/qrCodeService';
 import { VerificationResult, VerificationStatus } from '../types';
 
 export const Verify: React.FC = () => {
@@ -18,6 +20,7 @@ export const Verify: React.FC = () => {
   const [authenticityAnalysis, setAuthenticityAnalysis] = useState<AuthenticityAnalysis | null>(null);
   const [useEnhancedAnalysis, setUseEnhancedAnalysis] = useState(true);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   const handleVerify = async (fileToVerify?: File, hashToVerify?: string) => {
     setResult({ status: VerificationStatus.PROCESSING });
@@ -115,11 +118,19 @@ export const Verify: React.FC = () => {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    
+
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const f = e.dataTransfer.files[0];
       setFile(f);
       handleVerify(f);
+    }
+  };
+
+  const handleQRScan = (data: QRCodeData) => {
+    setShowQRScanner(false);
+    if (data.hash) {
+      setInputHash(data.hash);
+      handleVerify(undefined, data.hash);
     }
   };
 
@@ -222,9 +233,16 @@ export const Verify: React.FC = () => {
                />
             </div>
             
-            {/* Action button */}
+            {/* Action buttons */}
             <div className="flex items-center gap-2 border-t md:border-t-0 md:border-l border-white/10 pt-2 md:pt-0 md:pl-2">
-              <button 
+              <button
+                onClick={() => setShowQRScanner(true)}
+                className="p-3 md:p-4 text-neutral-400 hover:text-orange-600 transition-colors"
+                title="Scan QR Code"
+              >
+                <QrCode size={20} />
+              </button>
+              <button
                 onClick={() => handleVerify(undefined, inputHash)}
                 disabled={!inputHash || isLoading}
                 className="bg-white text-black px-6 md:px-8 py-3 md:py-4 text-xs font-bold uppercase tracking-widest hover:bg-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-1 md:flex-none"
@@ -347,7 +365,7 @@ export const Verify: React.FC = () => {
                      <span className="font-bold text-neutral-900">{result.originalRecord.sender}</span>
                    ) : (
                      <a 
-                        href={`https://amoy.polygonscan.com/address/${result.originalRecord?.sender}`}
+                        href={`https://polygonscan.com/address/${result.originalRecord?.sender}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1 font-bold text-neutral-900 hover:text-orange-600 transition-colors"
@@ -363,7 +381,7 @@ export const Verify: React.FC = () => {
                      <span className="font-bold text-neutral-900">N/A (Local)</span>
                    ) : (
                      <a 
-                        href={`https://amoy.polygonscan.com/block/${result.originalRecord?.blockHeight}`}
+                        href={`https://polygonscan.com/block/${result.originalRecord?.blockHeight}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex items-center gap-1 font-bold text-neutral-900 hover:text-orange-600 transition-colors"
@@ -415,6 +433,18 @@ export const Verify: React.FC = () => {
         )}
 
       </div>
+
+      {/* QR Scanner Modal */}
+      {showQRScanner && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="w-full max-w-md">
+            <QRScanner
+              onScan={handleQRScan}
+              onClose={() => setShowQRScanner(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

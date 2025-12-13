@@ -1,7 +1,7 @@
 {
   "name": "origynl",
   "private": true,
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,10 +16,14 @@
     "pdf-lib": "^1.17.1",
     "react-router-dom": "^7.9.6",
     "react-webcam": "^7.2.0",
-    "piexifjs": "^1.0.6"
+    "piexifjs": "^1.0.6",
+    "qrcode": "^1.5.3",
+    "jsqr": "^1.4.0",
+    "canvas-confetti": "^1.9.3"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@types/qrcode": "^1.5.5",
     "@vercel/node": "^5.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",

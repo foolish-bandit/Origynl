@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, ArrowRight, Download, RefreshCw, FileText, ExternalLink, Radio, AlertTriangle, Award, X, Files, Loader2, Check, Mail, Copy, CheckCheck } from 'lucide-react';
+import { Upload, ArrowRight, Download, RefreshCw, FileText, ExternalLink, Radio, AlertTriangle, Award, X, Files, Loader2, Check, Mail, Copy, CheckCheck, QrCode } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { computeFileHash, computeCompositeHash } from '../services/hashService';
 import { writeHashToChain } from '../services/chainService';
@@ -8,6 +8,9 @@ import { embedWatermark, embedMetadata } from '../services/imageService';
 import { generateCertificate, generateBatchCertificate } from '../services/certificateService';
 import { buildMerkleTree, MerkleProof } from '../services/merkleService';
 import { SensorData } from '../types';
+import { SuccessScreen } from '../components/SuccessScreen';
+import { QRCodeModal } from '../components/QRCodeModal';
+import { celebrate } from '../services/celebrationService';
 
 interface FileItem {
   file: File;
@@ -48,6 +51,7 @@ export const Certify: React.FC = () => {
   const [emailInput, setEmailInput] = useState('');
   const [showEmailInput, setShowEmailInput] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
   
   // Batch state
   const [isBatch, setIsBatch] = useState(false);
@@ -213,6 +217,9 @@ export const Certify: React.FC = () => {
     // Use the already-created stamped file
     setProcessedImage(finalUrl);
     setStatus('COMPLETE');
+
+    // Celebrate!
+    celebrate(isLive ? 'certified' : 'success');
   };
 
   const processBatch = async () => {
@@ -263,6 +270,9 @@ export const Certify: React.FC = () => {
     });
 
     setStatus('COMPLETE');
+
+    // Celebrate batch!
+    celebrate('certified');
   };
 
   const downloadBatchCertificate = async (proof: MerkleProof) => {
@@ -455,7 +465,52 @@ export const Certify: React.FC = () => {
            </div>
         )}
 
-        {status === 'COMPLETE' && (
+        {status === 'COMPLETE' && !isBatch && (
+          <SuccessScreen
+            title="Document Certified"
+            message={isSimulation
+              ? "Proof generated in local simulation mode. This record exists only in this browser."
+              : "Your document is now permanently recorded on the Polygon blockchain."
+            }
+            certificateUrl={certificateUrl || undefined}
+            txHash={isSimulation ? undefined : txId}
+            hash={hash}
+            timestamp={timestamp}
+            onReset={() => { setStatus('IDLE'); setFiles([]); resetState(); }}
+            customActions={
+              <div className="flex flex-col gap-3 w-full">
+                {processedImage && (
+                  <a
+                    href={processedImage}
+                    download={`origynl-stamped-${files[0]?.file.name || 'document'}.${isPDF ? 'pdf' : 'png'}`}
+                    className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest font-bold"
+                  >
+                    <span>Download Stamped File</span>
+                    <Download size={14} />
+                  </a>
+                )}
+
+                <button
+                  onClick={() => setShowQRModal(true)}
+                  className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest"
+                >
+                  <span>Show QR Code</span>
+                  <QrCode size={14} />
+                </button>
+
+                <button
+                  onClick={copyLink}
+                  className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest"
+                >
+                  <span>Copy Verification Link</span>
+                  {copied ? <CheckCheck size={14} className="text-green-500" /> : <Copy size={14} />}
+                </button>
+              </div>
+            }
+          />
+        )}
+
+        {status === 'COMPLETE' && isBatch && (
            <div className="space-y-8">
              <div className="p-6 md:p-8 border border-white/10 bg-white/5 relative overflow-hidden">
                 {isSimulation && (
@@ -463,79 +518,26 @@ export const Certify: React.FC = () => {
                     <span className="text-[10px] font-bold uppercase tracking-widest text-yellow-500 border border-yellow-500/50 px-2 py-1 rounded bg-yellow-500/10">Demo Mode</span>
                   </div>
                 )}
-                
+
                 <div className="flex items-start gap-4 mb-4">
                   <div className="w-12 h-12 rounded-full bg-green-900/30 flex items-center justify-center shrink-0">
                     <Check className="text-green-500" size={24} />
                   </div>
                   <div>
-                    <h3 className="font-serif text-2xl md:text-3xl text-white">Certified.</h3>
+                    <h3 className="font-serif text-2xl md:text-3xl text-white">Batch Certified</h3>
                     <p className="text-neutral-400 text-sm mt-1">
-                      {isBatch 
-                        ? `${files.length} documents are now permanently recorded on the blockchain.`
-                        : isSimulation 
-                          ? "Proof generated in local simulation mode. This record exists only in this browser."
-                          : "This document is now permanently recorded on the Polygon blockchain."
-                      }
+                      {files.length} documents are now permanently recorded on the blockchain.
                     </p>
                   </div>
                 </div>
-                
-                {/* Single file actions */}
-                {!isBatch && (
-                  <div className="flex flex-col gap-3">
-                    {certificateUrl && (
-                      <a 
-                        href={certificateUrl} 
-                        download={`origynl-certificate-${files[0]?.file.name || 'document'}.pdf`}
-                        className="flex items-center justify-between w-full py-4 px-6 bg-orange-600 hover:bg-orange-700 text-white transition-colors text-xs uppercase tracking-widest font-bold"
-                      >
-                        <span className="flex items-center gap-2">
-                          <Award size={16} />
-                          Download Certificate
-                        </span>
-                        <Download size={14} /> 
-                      </a>
-                    )}
-
-                    <a 
-                      href={processedImage || '#'} 
-                      download={`origynl-stamped-${files[0]?.file.name || 'document'}.${isPDF ? 'pdf' : 'png'}`}
-                      className={`flex items-center justify-between w-full py-4 px-6 transition-colors text-xs uppercase tracking-widest font-bold ${certificateUrl ? 'border border-white/10 hover:bg-white/5 text-neutral-400' : 'bg-orange-600 hover:bg-orange-700 text-white'}`}
-                    >
-                      <span>Download Stamped File</span>
-                      <Download size={14} /> 
-                    </a>
-
-                    <button 
-                      onClick={copyLink}
-                      className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest"
-                    >
-                      <span>Copy Verification Link</span>
-                      {copied ? <CheckCheck size={14} className="text-green-500" /> : <Copy size={14} />}
-                    </button>
-
-                    {!isSimulation && txId && (
-                      <a 
-                        href={`https://amoy.polygonscan.com/tx/${txId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest"
-                      >
-                        <span>View on Blockchain</span>
-                        <ExternalLink size={14} />
-                      </a>
-                    )}
-                  </div>
-                )}
 
                 {/* Batch file downloads */}
-                {isBatch && batchResult && (
+                {batchResult && (
                   <div className="space-y-3">
                     <div className="p-3 bg-neutral-900/50 border border-white/5">
                       <span className="text-xs text-neutral-600 uppercase tracking-widest">Transaction</span>
-                      <a 
-                        href={`https://amoy.polygonscan.com/tx/${batchResult.txHash}`}
+                      <a
+                        href={`https://polygonscan.com/tx/${batchResult.txHash}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="block text-sm text-orange-600 hover:text-orange-500 font-mono truncate"
@@ -562,7 +564,7 @@ export const Certify: React.FC = () => {
                   </div>
                 )}
 
-                <button 
+                <button
                  onClick={() => { setStatus('IDLE'); setFiles([]); resetState(); }}
                  className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest mt-4"
                 >
@@ -623,7 +625,7 @@ export const Certify: React.FC = () => {
                  </div>
                ) : (
                  <a 
-                   href={`https://amoy.polygonscan.com/tx/${txId}`} 
+                   href={`https://polygonscan.com/tx/${txId}`} 
                    target="_blank" 
                    rel="noopener noreferrer"
                    className="flex items-center gap-2 text-orange-600 hover:text-orange-500 transition-colors break-all group"
@@ -638,6 +640,18 @@ export const Certify: React.FC = () => {
            </div>
         </div>
       </div>
+
+      {/* QR Code Modal */}
+      <QRCodeModal
+        isOpen={showQRModal}
+        onClose={() => setShowQRModal(false)}
+        data={{
+          hash,
+          verificationUrl: `https://origynl-20.vercel.app/#/verify?hash=${hash}`,
+          timestamp,
+        }}
+        title={files[0]?.file.name || 'Verification'}
+      />
     </div>
   );
 };

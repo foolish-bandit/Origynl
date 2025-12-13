@@ -328,7 +328,7 @@ const FactorCard: React.FC<FactorCardProps> = ({
           {blockchainTxHash && !isSimulation && title.includes('Blockchain') && (
             <div className="mt-4 pt-3 border-t border-neutral-200">
               <a
-                href={`https://amoy.polygonscan.com/tx/${blockchainTxHash}`}
+                href={`https://polygonscan.com/tx/${blockchainTxHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-2 text-xs text-orange-600 hover:text-orange-700 font-bold uppercase tracking-wide"
