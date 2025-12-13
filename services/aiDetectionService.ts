@@ -4,6 +4,20 @@
  * Uses multiple detection strategies for comprehensive analysis
  */
 
+import {
+  analyzeFrequencyDomain,
+  analyzeGeometry,
+  analyzeNoiseProfile,
+  FrequencyAnalysisResult,
+  GeometryAnalysisResult,
+  NoiseProfileResult,
+} from './advancedForensicsService';
+
+import {
+  analyzeTextForensics,
+  TextForensicsResult,
+} from './advancedTextForensicsService';
+
 export interface AIDetectionResult {
   isAIGenerated: boolean;
   confidence: number; // 0-100
@@ -12,6 +26,7 @@ export interface AIDetectionResult {
     imageAnalysis?: ImageAnalysis;
     textAnalysis?: TextAnalysis;
     metadataAnalysis?: MetadataAnalysis;
+    advancedForensics?: AdvancedForensics;
   };
   warnings: string[];
   timestamp: number;
@@ -35,6 +50,7 @@ interface TextAnalysis {
   perplexityScore?: number;
   burstinessScore?: number;
   suspiciousPatterns: string[];
+  hallucinationCount?: number;
 }
 
 interface MetadataAnalysis {
@@ -42,6 +58,13 @@ interface MetadataAnalysis {
   detectedTools: string[];
   metadataComplete: boolean;
   suspiciousFields: string[];
+}
+
+interface AdvancedForensics {
+  frequencyAnalysis?: FrequencyAnalysisResult;
+  geometryAnalysis?: GeometryAnalysisResult;
+  noiseProfile?: NoiseProfileResult;
+  textForensics?: TextForensicsResult;
 }
 
 // Known AI tool signatures in metadata
@@ -89,6 +112,11 @@ export async function detectAI(
   if (fileType.startsWith('image/')) {
     const imageAnalysis = await analyzeImage(file);
 
+    // Run advanced forensics
+    const frequencyAnalysis = await analyzeFrequencyDomain(file);
+    const geometryAnalysis = await analyzeGeometry(file);
+    const noiseProfile = await analyzeNoiseProfile(file);
+
     // Calculate confidence based on multiple factors
     let confidence = 0;
     let isAIGenerated = false;
@@ -105,6 +133,45 @@ export async function detectAI(
       confidence += 25;
       isAIGenerated = true;
       warnings.push('Visual analysis detected AI generation patterns');
+    }
+
+    // Advanced: Frequency domain analysis
+    if (frequencyAnalysis.hasToroidalArtifacts) {
+      confidence += 20;
+      isAIGenerated = true;
+      warnings.push('Toroidal artifacts detected (typical of diffusion models)');
+    }
+
+    if (frequencyAnalysis.halftoneDetected) {
+      warnings.push('Halftone screening detected (scanned/printed document)');
+    }
+
+    if (frequencyAnalysis.noiseLayerCount === 1 && !frequencyAnalysis.halftoneDetected) {
+      confidence += 10;
+      warnings.push('Single-layer noise (scanner-only or synthetic)');
+    }
+
+    // Advanced: Geometry and physics analysis
+    if (!geometryAnalysis.vanishingPointsConsistent) {
+      confidence += 15;
+      isAIGenerated = true;
+      warnings.push('Inconsistent perspective/vanishing points detected');
+    }
+
+    if (!geometryAnalysis.shadowVectorsConsistent) {
+      confidence += 15;
+      isAIGenerated = true;
+      warnings.push('Inconsistent shadow directions (lighting anomalies)');
+    }
+
+    // Advanced: Noise profile analysis
+    if (noiseProfile.sensorType === 'synthetic') {
+      confidence += 25;
+      isAIGenerated = true;
+      warnings.push('Synthetic noise profile detected (likely AI-generated)');
+    } else if (!noiseProfile.profileMatches) {
+      confidence += 10;
+      warnings.push('Noise profile does not match expected sensor characteristics');
     }
 
     // Suspicious compression/noise patterns
@@ -129,10 +196,15 @@ export async function detectAI(
     return {
       isAIGenerated,
       confidence,
-      provider: 'Origynl Multi-Factor Analysis',
+      provider: 'Origynl Advanced Multi-Factor Analysis',
       details: {
         imageAnalysis,
         metadataAnalysis,
+        advancedForensics: {
+          frequencyAnalysis,
+          geometryAnalysis,
+          noiseProfile,
+        },
       },
       warnings,
       timestamp: Date.now(),
@@ -142,6 +214,10 @@ export async function detectAI(
     fileType.startsWith('text/')
   ) {
     const textAnalysis = await analyzeText(file);
+
+    // Run advanced text forensics
+    const textContent = await file.text();
+    const textForensics = await analyzeTextForensics(textContent);
 
     let confidence = 0;
     let isAIGenerated = false;
@@ -158,15 +234,49 @@ export async function detectAI(
       warnings.push('Text patterns consistent with AI generation');
     }
 
+    // Advanced: Text forensics with normalized burstiness
+    if (textForensics.normalizedBurstiness < 0.3) {
+      confidence += 15;
+      isAIGenerated = true;
+      warnings.push('Abnormally consistent sentence structure (AI-typical)');
+    }
+
+    if (textForensics.perplexity < 20) {
+      confidence += 15;
+      isAIGenerated = true;
+      warnings.push('Very low perplexity detected (highly predictable text)');
+    }
+
+    // Advanced: Hallucination detection
+    const hallucinationCount = textForensics.hallucinationRisks.filter(
+      (h) => h.suspicious
+    ).length;
+
+    if (hallucinationCount > 0) {
+      confidence += Math.min(30, hallucinationCount * 15);
+      isAIGenerated = true;
+      warnings.push(
+        `${hallucinationCount} potential hallucination(s) detected in text`
+      );
+    }
+
+    // Update textAnalysis with advanced metrics
+    textAnalysis.perplexityScore = textForensics.perplexity;
+    textAnalysis.burstinessScore = textForensics.normalizedBurstiness;
+    textAnalysis.hallucinationCount = hallucinationCount;
+
     confidence = Math.min(confidence, 100);
 
     return {
       isAIGenerated,
       confidence,
-      provider: 'Origynl Multi-Factor Analysis',
+      provider: 'Origynl Advanced Multi-Factor Analysis',
       details: {
         textAnalysis,
         metadataAnalysis,
+        advancedForensics: {
+          textForensics,
+        },
       },
       warnings,
       timestamp: Date.now(),

@@ -215,12 +215,16 @@ export const Home: React.FC = () => {
               </div>
               <ul className="space-y-4">
                 {[
+                  { title: "Frequency Domain Analysis (DFT)", desc: "Detects toroidal artifacts and dual-layer noise" },
+                  { title: "Physics & Geometry", desc: "Analyzes vanishing points and shadow consistency" },
+                  { title: "Noise Convolution Matching", desc: "Validates sensor noise profile authenticity" },
                   { title: "Visual Artifacts", desc: "AI generation patterns in images" },
                   { title: "Metadata Forensics", desc: "Hidden AI tool signatures and inconsistencies" },
                   { title: "Compression Analysis", desc: "Unnatural uniformity common in AI images" },
-                  { title: "Noise Patterns", desc: "Artificial vs. natural sensor noise" },
-                  { title: "Text Patterns", desc: "AI-typical writing styles and phrases" },
-                  { title: "Creation Context", desc: "Missing camera/device information" }
+                  { title: "Normalized Burstiness", desc: "Sentence variation with OCR error correction" },
+                  { title: "Perplexity Analysis", desc: "Text predictability and AI patterns" },
+                  { title: "Hallucination Triangulation", desc: "Cross-references entities for fake citations" },
+                  { title: "Inverse Halftoning", desc: "Removes print screening for clean analysis" }
                 ].map((item, i) => (
                   <li key={i} className="flex items-start gap-3 text-neutral-400">
                     <CheckCircle size={18} className="text-orange-500 mt-0.5 shrink-0" />
