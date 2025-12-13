@@ -221,7 +221,7 @@ export const Home: React.FC = () => {
                   { title: "Noise Patterns", desc: "Artificial vs. natural sensor noise" },
                   { title: "Text Patterns", desc: "AI-typical writing styles and phrases" },
                   { title: "Creation Context", desc: "Missing camera/device information" }
-                ]}.map((item, i) => (
+                ].map((item, i) => (
                   <li key={i} className="flex items-start gap-3 text-neutral-400">
                     <CheckCircle size={18} className="text-orange-500 mt-0.5 shrink-0" />
                     <div>
