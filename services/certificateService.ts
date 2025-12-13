@@ -1,5 +1,6 @@
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
 import { MerkleProof } from './merkleService';
+import { AuthenticityScore } from './authenticityService';
 
 export interface CertificateData {
   fileName: string;
@@ -8,6 +9,7 @@ export interface CertificateData {
   timestamp: number;
   blockHeight?: number;
   sender?: string;
+  authenticityScore?: AuthenticityScore;
 }
 
 export interface BatchCertificateData {
@@ -287,6 +289,84 @@ export const generateCertificate = async (data: CertificateData): Promise<Blob> 
     color: orange,
   });
 
+  // Add AI Detection results if available
+  if (data.authenticityScore) {
+    page.drawLine({
+      start: { x: 60, y: height - 700 },
+      end: { x: width - 60, y: height - 700 },
+      thickness: 0.5,
+      color: lightGray,
+    });
+
+    page.drawText('AI DETECTION & AUTHENTICITY ANALYSIS', {
+      x: 60,
+      y: height - 730,
+      size: 10,
+      font: helveticaBold,
+      color: orange,
+    });
+
+    const scoreColor = data.authenticityScore.overall >= 70 ? rgb(0.133, 0.725, 0.506) :
+                       data.authenticityScore.overall >= 50 ? rgb(0.918, 0.702, 0.031) :
+                       rgb(0.937, 0.267, 0.267);
+
+    page.drawText(`Authenticity Score: ${data.authenticityScore.overall}/100`, {
+      x: 60,
+      y: height - 755,
+      size: 11,
+      font: helveticaBold,
+      color: scoreColor,
+    });
+
+    page.drawText(`Status: ${data.authenticityScore.level}`, {
+      x: 60,
+      y: height - 772,
+      size: 9,
+      font: helvetica,
+      color: black,
+    });
+
+    // Risk factors
+    if (data.authenticityScore.riskFactors.length > 0) {
+      page.drawText('Risk Factors:', {
+        x: 60,
+        y: height - 795,
+        size: 8,
+        font: helveticaBold,
+        color: rgb(0.8, 0.3, 0),
+      });
+
+      let riskY = height - 810;
+      data.authenticityScore.riskFactors.slice(0, 3).forEach((risk, idx) => {
+        const truncatedRisk = risk.length > 70 ? risk.slice(0, 67) + '...' : risk;
+        page.drawText(`• ${truncatedRisk}`, {
+          x: 65,
+          y: riskY,
+          size: 7,
+          font: helvetica,
+          color: gray,
+        });
+        riskY -= 12;
+      });
+    } else {
+      page.drawText('✓ No AI generation indicators detected', {
+        x: 60,
+        y: height - 795,
+        size: 8,
+        font: helvetica,
+        color: rgb(0.133, 0.725, 0.506),
+      });
+
+      page.drawText('✓ All authenticity checks passed', {
+        x: 60,
+        y: height - 810,
+        size: 8,
+        font: helvetica,
+        color: rgb(0.133, 0.725, 0.506),
+      });
+    }
+  }
+
   // Footer
   page.drawLine({
     start: { x: 60, y: 100 },
@@ -302,7 +382,7 @@ export const generateCertificate = async (data: CertificateData): Promise<Blob> 
     font: helvetica,
     color: lightGray,
   });
-  
+
   page.drawText('The cryptographic fingerprint above uniquely identifies this document. Any modification to the', {
     x: 60,
     y: 65,
@@ -310,7 +390,7 @@ export const generateCertificate = async (data: CertificateData): Promise<Blob> 
     font: helvetica,
     color: lightGray,
   });
-  
+
   page.drawText('original file will result in a different fingerprint, making tampering detectable.', {
     x: 60,
     y: 55,

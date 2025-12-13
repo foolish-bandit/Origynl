@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Shield, Scale, FileCheck, AlertTriangle, Building2, Landmark, Clock, Lock, CheckCircle, XCircle, HelpCircle, FlaskConical } from 'lucide-react';
+import { ArrowRight, Shield, Scale, FileCheck, AlertTriangle, Building2, Landmark, Clock, Lock, CheckCircle, XCircle, HelpCircle, FlaskConical, Bot, Sparkles, ScanLine, Database } from 'lucide-react';
 
 export const Home: React.FC = () => {
   const scrollToHow = () => {
@@ -32,13 +32,23 @@ export const Home: React.FC = () => {
           
           <h1 className="font-serif text-4xl md:text-6xl lg:text-7xl text-neutral-200 leading-[1.1] tracking-tight">
             Prove Your Documents<br/>
-            <span className="text-orange-600">Are Real.</span>
+            <span className="text-orange-600">Are Real, Not AI.</span>
           </h1>
 
           <p className="font-sans font-light text-neutral-400 text-lg md:text-xl max-w-2xl mx-auto leading-relaxed px-4">
-            Anyone can fake a document now. Origynl gives you <span className="text-white">undeniable proof</span> that 
-            your contracts, photos, and records existed at a specific moment in time—and haven't been changed since.
+            Anyone can fake a document now. Origynl gives you <span className="text-white">undeniable proof</span> that
+            your contracts, photos, and records existed at a specific moment in time, <span className="text-white">aren't AI-generated</span>, and haven't been changed since.
           </p>
+
+          {/* AI Detection Badge */}
+          <div className="flex items-center justify-center gap-2 pt-4">
+            <div className="flex items-center gap-2 px-4 py-2 bg-orange-600/20 border border-orange-600/40 rounded-full">
+              <Sparkles className="w-4 h-4 text-orange-500 animate-pulse" />
+              <span className="text-xs font-bold uppercase tracking-widest text-orange-400">
+                Multi-Factor AI Detection
+              </span>
+            </div>
+          </div>
 
           <div className="pt-6 md:pt-8 flex flex-col sm:flex-row gap-4 md:gap-6 justify-center items-center px-4">
             <Link to="/certify" className="group relative px-8 md:px-10 py-4 md:py-5 bg-orange-600 hover:bg-orange-700 text-white overflow-hidden w-full sm:w-auto transition-colors">
@@ -174,6 +184,103 @@ export const Home: React.FC = () => {
                   </li>
                 </ul>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* AI Detection Section */}
+      <section className="py-16 md:py-24 px-4 md:px-8 bg-gradient-to-b from-orange-950/20 to-neutral-950 border-y border-orange-600/20">
+        <div className="max-w-5xl mx-auto">
+
+          <div className="text-center mb-12 md:mb-16">
+            <div className="flex items-center justify-center gap-3 mb-4">
+              <Bot className="w-8 h-8 text-orange-500" />
+              <h2 className="font-serif text-3xl md:text-5xl text-white">
+                Advanced AI Detection
+              </h2>
+            </div>
+            <p className="text-neutral-400 text-lg max-w-2xl mx-auto">
+              Multi-factor analysis to detect AI-generated content and ensure authenticity
+            </p>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6 mb-10">
+
+            {/* AI Detection Features */}
+            <div className="bg-neutral-950 border border-orange-600/30 p-6 md:p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <ScanLine className="text-orange-500" size={24} />
+                <h3 className="font-serif text-xl text-white">What We Analyze</h3>
+              </div>
+              <ul className="space-y-4">
+                {[
+                  { title: "Visual Artifacts", desc: "AI generation patterns in images" },
+                  { title: "Metadata Forensics", desc: "Hidden AI tool signatures and inconsistencies" },
+                  { title: "Compression Analysis", desc: "Unnatural uniformity common in AI images" },
+                  { title: "Noise Patterns", desc: "Artificial vs. natural sensor noise" },
+                  { title: "Text Patterns", desc: "AI-typical writing styles and phrases" },
+                  { title: "Creation Context", desc: "Missing camera/device information" }
+                ]}.map((item, i) => (
+                  <li key={i} className="flex items-start gap-3 text-neutral-400">
+                    <CheckCircle size={18} className="text-orange-500 mt-0.5 shrink-0" />
+                    <div>
+                      <span className="text-white font-medium">{item.title}:</span>
+                      <span className="ml-2">{item.desc}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Authenticity Score */}
+            <div className="bg-neutral-950 border border-white/10 p-6 md:p-8">
+              <div className="flex items-center gap-3 mb-6">
+                <Database className="text-green-500" size={24} />
+                <h3 className="font-serif text-xl text-white">Multi-Factor Score</h3>
+              </div>
+              <div className="space-y-6">
+                <p className="text-neutral-300 leading-relaxed">
+                  Every verified file receives a comprehensive <span className="text-white font-bold">Authenticity Score (0-100)</span> based on:
+                </p>
+                <div className="space-y-4">
+                  {[
+                    { factor: "Blockchain Certification", weight: "40%", color: "text-blue-400" },
+                    { factor: "AI Detection Analysis", weight: "30%", color: "text-orange-400" },
+                    { factor: "Metadata Authenticity", weight: "20%", color: "text-purple-400" },
+                    { factor: "Forensic Analysis", weight: "10%", color: "text-green-400" }
+                  ].map((item, i) => (
+                    <div key={i} className="flex items-center justify-between">
+                      <span className="text-neutral-300">{item.factor}</span>
+                      <span className={`font-bold ${item.color}`}>{item.weight}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="pt-4 border-t border-white/10">
+                  <p className="text-sm text-neutral-400 italic">
+                    Files receive color-coded trust levels from <span className="text-green-500">AUTHENTIC</span> to <span className="text-red-500">AI GENERATED/FAKE</span>
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Call to Action */}
+          <div className="text-center bg-orange-600/10 border border-orange-600/30 p-8 rounded-lg">
+            <h3 className="font-serif text-2xl text-white mb-3">
+              Try AI Detection Now
+            </h3>
+            <p className="text-neutral-300 mb-6 max-w-xl mx-auto">
+              Upload any file to get instant AI detection analysis plus blockchain certification
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+              <Link to="/verify" className="px-8 py-4 bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold uppercase tracking-widest transition-colors flex items-center gap-2">
+                <ScanLine size={16} />
+                Verify & Analyze File
+              </Link>
+              <Link to="/certify" className="px-8 py-4 border border-white/20 hover:border-orange-600 text-white text-sm font-bold uppercase tracking-widest transition-all">
+                Certify New File
+              </Link>
             </div>
           </div>
         </div>

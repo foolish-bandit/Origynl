@@ -1,23 +1,28 @@
 
 import React, { useState, useRef } from 'react';
-import { Search, Check, X, Upload, ShieldCheck, ExternalLink, MapPin, Radio, FileSearch, Zap, FileCheck, Database, FileText } from 'lucide-react';
+import { Search, Check, X, Upload, ShieldCheck, ExternalLink, MapPin, Radio, FileSearch, Zap, FileCheck, Database, FileText, Bot, Sparkles } from 'lucide-react';
 import { computeFileHash } from '../services/hashService';
 import { findRecordByHash } from '../services/chainService';
 import { extractHashFromMetadata } from '../services/imageService';
+import { analyzeAuthenticity, AuthenticityAnalysis } from '../services/authenticityService';
+import { AuthenticityReport } from '../components/AuthenticityReport';
 import { VerificationResult, VerificationStatus } from '../types';
 
 export const Verify: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
   const [inputHash, setInputHash] = useState('');
   const [result, setResult] = useState<VerificationResult>({ status: VerificationStatus.IDLE });
-  const [processStep, setProcessStep] = useState<'IDLE' | 'READING' | 'ANALYZING' | 'HASHING' | 'LOOKUP'>('IDLE');
+  const [processStep, setProcessStep] = useState<'IDLE' | 'READING' | 'ANALYZING' | 'HASHING' | 'LOOKUP' | 'AI_DETECTION' | 'SCORING'>('IDLE');
   const [verifiedByMetadata, setVerifiedByMetadata] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [authenticityAnalysis, setAuthenticityAnalysis] = useState<AuthenticityAnalysis | null>(null);
+  const [useEnhancedAnalysis, setUseEnhancedAnalysis] = useState(true);
   const dropZoneRef = useRef<HTMLDivElement>(null);
 
   const handleVerify = async (fileToVerify?: File, hashToVerify?: string) => {
     setResult({ status: VerificationStatus.PROCESSING });
     setVerifiedByMetadata(false);
+    setAuthenticityAnalysis(null);
 
     try {
       let targetHash = hashToVerify || '';
@@ -25,12 +30,12 @@ export const Verify: React.FC = () => {
       if (fileToVerify) {
         setProcessStep('READING');
         await new Promise(resolve => setTimeout(resolve, 300));
-        
+
         setProcessStep('ANALYZING');
-        
+
         // 1. Try to extract hash from metadata first
         const embeddedHash = await extractHashFromMetadata(fileToVerify);
-        
+
         if (embeddedHash) {
           console.log("Found Embedded Hash:", embeddedHash);
           targetHash = embeddedHash;
@@ -53,6 +58,20 @@ export const Verify: React.FC = () => {
 
       setProcessStep('LOOKUP');
       const record = await findRecordByHash(targetHash);
+
+      // Enhanced analysis if file is provided and enabled
+      if (fileToVerify && useEnhancedAnalysis) {
+        setProcessStep('AI_DETECTION');
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        setProcessStep('SCORING');
+        const analysis = await analyzeAuthenticity(
+          fileToVerify,
+          !!record,
+          record?.timestamp
+        );
+        setAuthenticityAnalysis(analysis);
+      }
 
       if (record) {
         setResult({
@@ -112,6 +131,8 @@ export const Verify: React.FC = () => {
       case 'ANALYZING': return 'Checking for embedded certificate...';
       case 'HASHING': return 'Computing fingerprint...';
       case 'LOOKUP': return 'Searching blockchain records...';
+      case 'AI_DETECTION': return 'Analyzing for AI-generated content...';
+      case 'SCORING': return 'Calculating authenticity score...';
       default: return '';
     }
   };
@@ -137,10 +158,30 @@ export const Verify: React.FC = () => {
       )}
 
       <div className="w-full max-w-2xl mb-8 md:mb-16 text-center space-y-4 px-4">
-        <h1 className="font-serif text-4xl md:text-6xl text-white">Verify Authenticity</h1>
+        <div className="flex items-center justify-center gap-3 mb-4">
+          <h1 className="font-serif text-4xl md:text-6xl text-white">Verify Authenticity</h1>
+          <div className="relative group">
+            <Sparkles className="w-6 h-6 md:w-8 md:h-8 text-orange-500 animate-pulse" />
+            <span className="absolute -top-1 -right-1 text-[10px] bg-orange-600 text-white px-1 rounded-full font-bold">AI</span>
+          </div>
+        </div>
         <p className="text-neutral-500 font-light text-sm md:text-base">
-          Drop a file anywhere on this page to check if it's been certified, or paste a transaction ID below.
+          Drop a file anywhere on this page to check if it's been certified and verify it's not AI-generated.
         </p>
+        <div className="flex items-center justify-center gap-4">
+          <label className="flex items-center gap-2 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={useEnhancedAnalysis}
+              onChange={(e) => setUseEnhancedAnalysis(e.target.checked)}
+              className="w-4 h-4 accent-orange-600"
+            />
+            <span className="text-xs text-neutral-400 group-hover:text-white transition-colors flex items-center gap-1">
+              <Bot size={14} />
+              Enhanced AI Detection
+            </span>
+          </label>
+        </div>
       </div>
 
       <div className="w-full max-w-3xl space-y-4 md:space-y-8 px-4">
@@ -195,7 +236,7 @@ export const Verify: React.FC = () => {
         </div>
       </div>
 
-      <div className="mt-12 md:mt-24 w-full max-w-xl transition-all duration-700 ease-out transform px-4">
+      <div className="mt-12 md:mt-24 w-full max-w-3xl transition-all duration-700 ease-out transform px-4">
         
         {isLoading && (
            <div className="flex flex-col items-center space-y-6">
@@ -209,7 +250,17 @@ export const Verify: React.FC = () => {
            </div>
         )}
 
-        {!isLoading && result.status === VerificationStatus.AUTHENTIC && (
+        {!isLoading && result.status === VerificationStatus.AUTHENTIC && authenticityAnalysis && (
+          <AuthenticityReport
+            score={authenticityAnalysis.authenticityScore}
+            fileName={file?.name}
+            blockchainTxHash={result.originalRecord?.hash}
+            blockchainTimestamp={result.originalRecord?.timestamp}
+            isSimulation={result.originalRecord?.isSimulation}
+          />
+        )}
+
+        {!isLoading && result.status === VerificationStatus.AUTHENTIC && !authenticityAnalysis && (
           <div className={`bg-[#fcfbf9] text-black p-6 md:p-12 shadow-2xl relative border-t-4 ${result.originalRecord?.isSimulation ? 'border-yellow-500' : 'border-orange-600'}`}>
             
             {/* Live Capture Ribbon */}
@@ -339,7 +390,15 @@ export const Verify: React.FC = () => {
           </div>
         )}
 
-        {!isLoading && result.status === VerificationStatus.NOT_FOUND && (
+        {!isLoading && result.status === VerificationStatus.NOT_FOUND && authenticityAnalysis && (
+          <AuthenticityReport
+            score={authenticityAnalysis.authenticityScore}
+            fileName={file?.name}
+            isSimulation={false}
+          />
+        )}
+
+        {!isLoading && result.status === VerificationStatus.NOT_FOUND && !authenticityAnalysis && (
           <div className="border border-red-900/50 bg-red-950/10 p-6 md:p-12 text-center">
              <X className="w-12 h-12 text-red-600 mx-auto mb-6 opacity-50" />
              <h2 className="font-serif text-2xl md:text-3xl text-white mb-4">Not Found</h2>
