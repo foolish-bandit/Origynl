@@ -1,426 +1,644 @@
-
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Webcam from 'react-webcam';
 import { useNavigate } from 'react-router-dom';
-import { Camera, MapPin, Zap, AlertTriangle, ShieldCheck, SwitchCamera, Lock, Monitor, Smartphone } from 'lucide-react';
 import { SensorData } from '../types';
+import { IconArrow, IconCamera, IconMonitor, IconRadio } from '../components/Icons';
 
-type CaptureMode = 'select' | 'camera' | 'screen';
+type Mode = 'select' | 'camera' | 'screen';
 
-export const Capture: React.FC = () => {
-  const navigate = useNavigate();
-  const webcamRef = useRef<Webcam>(null);
-  const [mode, setMode] = useState<CaptureMode>('select');
-  const [sensors, setSensors] = useState<SensorData>({ timestamp: 0 });
-  const [permissionGranted, setPermissionGranted] = useState(false);
-  const [capturing, setCapturing] = useState(false);
-  const [facingMode, setFacingMode] = useState<"user" | "environment">("environment");
-  const [gyroVis, setGyroVis] = useState({ x: 0, y: 0 });
-  const [screenPreview, setScreenPreview] = useState<string | null>(null);
-  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
-  const screenVideoRef = useRef<HTMLVideoElement>(null);
+function dataUrlToFile(dataUrl: string, name: string): File {
+  const [meta, b64] = dataUrl.split(',');
+  const mimeMatch = meta.match(/data:(.*?);base64/);
+  const mime = mimeMatch ? mimeMatch[1] : 'image/png';
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new File([arr], name, { type: mime });
+}
 
-  const requestPermissions = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          setSensors(prev => ({
-            ...prev,
-            gps: {
-              lat: pos.coords.latitude,
-              lng: pos.coords.longitude,
-              accuracy: pos.coords.accuracy
-            }
-          }));
-        },
-        (err) => console.log("GPS Denied", err)
-      );
-    }
-    setPermissionGranted(true);
+async function captureScreen(): Promise<File | null> {
+  const md = navigator.mediaDevices as MediaDevices & {
+    getDisplayMedia?: (c?: MediaStreamConstraints) => Promise<MediaStream>;
   };
-
-  useEffect(() => {
-    if (!permissionGranted || mode !== 'camera') return;
-
-    const interval = setInterval(() => {
-      setGyroVis({
-        x: (Math.random() - 0.5) * 2,
-        y: (Math.random() - 0.5) * 2
-      });
-      setSensors(prev => ({
-        ...prev,
-        motion: { 
-          x: Math.random(), 
-          y: Math.random(), 
-          z: 9.8 + (Math.random() - 0.5) 
-        }
-      }));
-    }, 100);
-
-    return () => clearInterval(interval);
-  }, [permissionGranted, mode]);
-
-  const handleCameraCapture = useCallback(() => {
-    setCapturing(true);
-    
-    setTimeout(() => {
-      const imageSrc = webcamRef.current?.getScreenshot();
-      if (imageSrc) {
-        fetch(imageSrc)
-          .then(res => res.blob())
-          .then(blob => {
-            const file = new File([blob], `live_capture_${Date.now()}.jpg`, { type: 'image/jpeg' });
-            navigate('/certify', { 
-              state: { 
-                file, 
-                sensorData: { ...sensors, timestamp: Date.now() },
-                isLiveCapture: true 
-              } 
-            });
-          });
-      }
-    }, 600); 
-  }, [webcamRef, navigate, sensors]);
-
-  // Handle screen stream binding when mode changes
-  useEffect(() => {
-    if (mode === 'screen' && screenStream && screenVideoRef.current) {
-      const video = screenVideoRef.current;
-      video.srcObject = screenStream;
-      video.play().catch(err => console.error('Video play error:', err));
-    }
-  }, [mode, screenStream]);
-
-  const startScreenCapture = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { 
-          displaySurface: 'monitor',
-        },
-        audio: false
-      });
-      
-      // Handle when user stops sharing via browser UI
-      stream.getVideoTracks()[0].onended = () => {
-        setMode('select');
-        setScreenStream(null);
-        setScreenPreview(null);
-      };
-
-      // Set stream first, then change mode - useEffect will handle binding
-      setScreenStream(stream);
-      setMode('screen');
-    } catch (err) {
-      console.error('Screen capture error:', err);
-    }
-  };
-
-  const captureScreen = async () => {
-    if (!screenVideoRef.current || !screenStream) return;
-    
-    setCapturing(true);
-
-    const video = screenVideoRef.current;
+  if (!md?.getDisplayMedia) return null;
+  const stream = await md.getDisplayMedia({ video: true });
+  try {
+    const video = document.createElement('video');
+    video.srcObject = stream;
+    await video.play();
+    await new Promise((r) => setTimeout(r, 120));
     const canvas = document.createElement('canvas');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-    
     const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.drawImage(video, 0, 0);
-    }
+    if (!ctx) throw new Error('Canvas unavailable');
+    ctx.drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL('image/png');
+    return dataUrlToFile(dataUrl, `screen-capture-${Date.now()}.png`);
+  } finally {
+    stream.getTracks().forEach((t) => t.stop());
+  }
+}
 
-    // Stop the stream
-    screenStream.getTracks().forEach(track => track.stop());
-    setScreenStream(null);
+export const Capture: React.FC = () => {
+  const navigate = useNavigate();
+  const [mode, setMode] = useState<Mode>('select');
+  const [capturing, setCapturing] = useState(false);
+  const [captured, setCaptured] = useState<File | null>(null);
+  const [capturedPreview, setCapturedPreview] = useState<string | null>(null);
+  const [gyro, setGyro] = useState({ x: 0, y: 0 });
+  const [gps, setGps] = useState<{ lat: number; lng: number; acc: number } | null>(null);
+  const [permissionError, setPermissionError] = useState<string | null>(null);
+  const webcamRef = useRef<Webcam>(null);
 
-    // Convert to file and navigate
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const file = new File([blob], `screen_capture_${Date.now()}.png`, { type: 'image/png' });
-        navigate('/certify', {
-          state: {
-            file,
-            sensorData: { timestamp: Date.now() },
-            isLiveCapture: true
-          }
+  // Idle motion for HUD
+  useEffect(() => {
+    if (mode !== 'camera') return;
+    const t = setInterval(() => {
+      setGyro({ x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2 });
+    }, 120);
+    return () => clearInterval(t);
+  }, [mode]);
+
+  // Ask for geolocation only on explicit intent (entering camera mode)
+  useEffect(() => {
+    if (mode !== 'camera' || gps) return;
+    if (!('geolocation' in navigator)) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGps({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+          acc: Math.round(pos.coords.accuracy),
         });
+      },
+      () => {
+        /* user denied — leave gps null */
+      },
+      { enableHighAccuracy: true, maximumAge: 30_000, timeout: 8_000 },
+    );
+  }, [mode, gps]);
+
+  const shoot = useCallback(() => {
+    if (!webcamRef.current) return;
+    setCapturing(true);
+    const shot = webcamRef.current.getScreenshot();
+    setTimeout(() => {
+      setCapturing(false);
+      if (shot) {
+        const file = dataUrlToFile(shot, `witness-${Date.now()}.jpg`);
+        setCaptured(file);
+        setCapturedPreview(shot);
       }
-    }, 'image/png');
+    }, 300);
+  }, []);
+
+  const inscribe = () => {
+    if (!captured) return;
+    const sensors: SensorData = {
+      gps: gps ?? undefined,
+      timestamp: Date.now(),
+    };
+    navigate('/certify', {
+      state: {
+        file: captured,
+        isLiveCapture: true,
+        sensorData: sensors,
+      },
+    });
   };
 
-  const cancelScreenCapture = () => {
-    if (screenStream) {
-      screenStream.getTracks().forEach(track => track.stop());
+  const reshoot = () => {
+    setCaptured(null);
+    setCapturedPreview(null);
+  };
+
+  const handleScreenMode = async () => {
+    setMode('screen');
+    try {
+      const file = await captureScreen();
+      if (file) {
+        setCaptured(file);
+        setCapturedPreview(URL.createObjectURL(file));
+      } else {
+        setPermissionError(
+          'Screen capture is not supported in this browser. Try Chrome or Edge on desktop.',
+        );
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Screen capture failed';
+      setPermissionError(msg);
     }
-    setScreenStream(null);
-    setScreenPreview(null);
-    setMode('select');
   };
 
-  const toggleCamera = () => {
-    setFacingMode(prev => prev === "environment" ? "user" : "environment");
-  };
-
-  // Check if screen capture is supported
-  const isScreenCaptureSupported = typeof navigator !== 'undefined' && 
-    navigator.mediaDevices && 
-    'getDisplayMedia' in navigator.mediaDevices;
-
-  // Mode selection screen
+  /* -------- SELECT SCREEN -------- */
   if (mode === 'select') {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-8">
-        <div className="max-w-lg w-full space-y-8">
-          <div className="text-center mb-12">
-            <h2 className="font-serif text-3xl md:text-4xl text-white mb-4">Live Capture</h2>
-            <p className="text-neutral-500 max-w-md mx-auto leading-relaxed">
-              Capture and certify in real-time. Prove that content existed at this exact moment.
-            </p>
-          </div>
-
-          <div className="space-y-4">
-            {/* Camera option */}
+      <div style={{ padding: '64px 48px', maxWidth: 960, margin: '0 auto' }}>
+        <div className="label" style={{ color: 'var(--seal)' }}>§ CAPTURE · LIVE WITNESS</div>
+        <h1
+          className="serif"
+          style={{
+            fontSize: 'clamp(56px, 7vw, 112px)',
+            letterSpacing: '-0.035em',
+            lineHeight: 1.02,
+            marginTop: 12,
+          }}
+        >
+          Witness<br />this moment.
+        </h1>
+        <p style={{ marginTop: 32, color: 'var(--ink-dim)', fontSize: 17, maxWidth: 620 }}>
+          Capture a photo or a screen with Origynl acting as the witness. Sensor telemetry — GPS and timestamp — is cryptographically bound to the image before inscription.
+        </p>
+        <div
+          style={{
+            marginTop: 48,
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 16,
+          }}
+        >
+          {[
+            {
+              id: 'camera' as const,
+              Icon: IconCamera,
+              title: 'Camera',
+              desc: 'Photograph a document, scene, or object. Includes GPS telemetry.',
+              tag: 'MOBILE + DESKTOP',
+              onClick: () => setMode('camera'),
+            },
+            {
+              id: 'screen' as const,
+              Icon: IconMonitor,
+              title: 'Screen',
+              desc: 'Grab the current screen — a webpage, chat, email. Prove what you saw, when.',
+              tag: 'DESKTOP ONLY',
+              onClick: handleScreenMode,
+            },
+          ].map((o) => (
             <button
-              onClick={() => {
-                requestPermissions();
-                setMode('camera');
+              key={o.id}
+              onClick={o.onClick}
+              style={{
+                textAlign: 'left',
+                padding: 32,
+                background: 'var(--bg-1)',
+                border: '1px solid var(--rule)',
+                cursor: 'pointer',
+                transition: 'all .2s',
               }}
-              className="w-full p-6 bg-neutral-900 border border-white/10 hover:border-orange-600 transition-all group text-left"
+              onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'var(--ink)')}
+              onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'var(--rule)')}
             >
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-full bg-neutral-800 group-hover:bg-orange-600/20 flex items-center justify-center transition-colors">
-                  <Camera className="text-neutral-400 group-hover:text-orange-600 transition-colors" size={24} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div
+                  style={{
+                    width: 48,
+                    height: 48,
+                    border: '1px solid var(--rule)',
+                    borderRadius: '50%',
+                    display: 'grid',
+                    placeItems: 'center',
+                    color: 'var(--seal)',
+                  }}
+                >
+                  <o.Icon size={20} />
                 </div>
-                <div className="flex-1">
-                  <h3 className="text-white font-bold mb-1">Camera Capture</h3>
-                  <p className="text-neutral-500 text-sm">
-                    Photograph a document, scene, or object. Includes GPS location and motion data for enhanced proof.
-                  </p>
-                  <div className="flex items-center gap-2 mt-3">
-                    <Smartphone size={12} className="text-neutral-600" />
-                    <span className="text-[10px] text-neutral-600 uppercase tracking-widest">Mobile & Desktop</span>
-                  </div>
-                </div>
+                <span className="label-sm">{o.tag}</span>
+              </div>
+              <h3
+                className="serif"
+                style={{ fontSize: 36, letterSpacing: '-0.02em', marginTop: 24 }}
+              >
+                {o.title}
+              </h3>
+              <p style={{ marginTop: 12, color: 'var(--ink-dim)', fontSize: 13 }}>{o.desc}</p>
+              <div
+                style={{
+                  marginTop: 20,
+                  display: 'inline-flex',
+                  gap: 8,
+                  color: 'var(--seal)',
+                  alignItems: 'center',
+                  fontSize: 12,
+                }}
+              >
+                Begin <IconArrow size={12} />
               </div>
             </button>
-
-            {/* Screen capture option */}
-            <button
-              onClick={startScreenCapture}
-              disabled={!isScreenCaptureSupported}
-              className={`w-full p-6 bg-neutral-900 border transition-all group text-left ${
-                isScreenCaptureSupported 
-                  ? 'border-white/10 hover:border-orange-600' 
-                  : 'border-white/5 opacity-50 cursor-not-allowed'
-              }`}
-            >
-              <div className="flex items-start gap-4">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-                  isScreenCaptureSupported 
-                    ? 'bg-neutral-800 group-hover:bg-orange-600/20' 
-                    : 'bg-neutral-900'
-                }`}>
-                  <Monitor className={`transition-colors ${
-                    isScreenCaptureSupported 
-                      ? 'text-neutral-400 group-hover:text-orange-600' 
-                      : 'text-neutral-700'
-                  }`} size={24} />
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-white font-bold mb-1">Screen Capture</h3>
-                  <p className="text-neutral-500 text-sm">
-                    Capture what's on your screen — a webpage, document, email, or chat. Prove what you saw at this moment.
-                  </p>
-                  <div className="flex items-center gap-2 mt-3">
-                    {isScreenCaptureSupported ? (
-                      <>
-                        <Monitor size={12} className="text-neutral-600" />
-                        <span className="text-[10px] text-neutral-600 uppercase tracking-widest">Desktop Only</span>
-                      </>
-                    ) : (
-                      <>
-                        <AlertTriangle size={12} className="text-yellow-600" />
-                        <span className="text-[10px] text-yellow-600 uppercase tracking-widest">Not supported on this device</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </button>
-          </div>
-
-          <p className="text-center text-neutral-600 text-xs">
-            All captures are processed locally. Nothing is uploaded until you certify.
-          </p>
+          ))}
+        </div>
+        <div
+          style={{
+            marginTop: 32,
+            padding: 16,
+            background: 'var(--bg-1)',
+            border: '1px solid var(--rule)',
+            fontSize: 12,
+            color: 'var(--ink-dim)',
+          }}
+        >
+          <span className="label" style={{ color: 'var(--seal)', marginRight: 8 }}>PRIVACY</span>
+          All captures are processed locally. Nothing is uploaded until you confirm certification on the next step.
         </div>
       </div>
     );
   }
 
-  // Screen capture mode
-  if (mode === 'screen') {
+  /* -------- CAMERA MODE -------- */
+  if (mode === 'camera') {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 md:p-8">
-        <div className="w-full max-w-5xl">
-          
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-3 h-3 rounded-full bg-red-500 animate-pulse"></div>
-              <span className="font-mono text-sm text-white uppercase tracking-widest">Screen Capture Active</span>
+      <div
+        style={{
+          background: '#000',
+          minHeight: 'calc(100vh - 72px - 28px)',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '12px 24px',
+            borderBottom: '1px solid rgba(255,255,255,.08)',
+          }}
+        >
+          <button
+            onClick={() => {
+              setMode('select');
+              reshoot();
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#aaa',
+              cursor: 'pointer',
+              fontSize: 12,
+            }}
+          >
+            ← Back
+          </button>
+          <div
+            style={{
+              display: 'flex',
+              gap: 20,
+              fontFamily: 'var(--mono)',
+              fontSize: 10,
+              color: '#888',
+              letterSpacing: '0.15em',
+              flexWrap: 'wrap',
+            }}
+          >
+            <span>
+              <span
+                className="pulsedot"
+                style={{
+                  display: 'inline-block',
+                  width: 6,
+                  height: 6,
+                  background: '#f60',
+                  borderRadius: '50%',
+                  marginRight: 6,
+                }}
+              />
+              WITNESS MODE ACTIVE
+            </span>
+            <span>
+              GPS:{' '}
+              {gps
+                ? `${gps.lat.toFixed(4)}, ${gps.lng.toFixed(4)} · ±${gps.acc}M`
+                : 'UNAVAILABLE'}
+            </span>
+          </div>
+        </div>
+
+        <div
+          style={{
+            flex: 1,
+            display: 'grid',
+            placeItems: 'center',
+            padding: 32,
+            position: 'relative',
+          }}
+        >
+          <div
+            style={{
+              position: 'relative',
+              width: 'min(90%, 920px)',
+              aspectRatio: '16/10',
+              background: '#0a0a0a',
+              border: '1px solid rgba(255,255,255,.1)',
+              overflow: 'hidden',
+            }}
+          >
+            {!capturedPreview && (
+              <Webcam
+                ref={webcamRef}
+                audio={false}
+                screenshotFormat="image/jpeg"
+                videoConstraints={{ facingMode: 'environment' }}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                onUserMediaError={(err) => {
+                  const msg = err instanceof Error ? err.message : 'Camera permission denied';
+                  setPermissionError(msg);
+                }}
+              />
+            )}
+
+            {capturedPreview && (
+              <img
+                src={capturedPreview}
+                alt="captured"
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+            )}
+
+            {/* Grid overlay */}
+            <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: '33.33%', width: 1, background: 'rgba(255,255,255,.06)' }} />
+              <div style={{ position: 'absolute', top: 0, bottom: 0, left: '66.66%', width: 1, background: 'rgba(255,255,255,.06)' }} />
+              <div style={{ position: 'absolute', left: 0, right: 0, top: '33.33%', height: 1, background: 'rgba(255,255,255,.06)' }} />
+              <div style={{ position: 'absolute', left: 0, right: 0, top: '66.66%', height: 1, background: 'rgba(255,255,255,.06)' }} />
             </div>
-            <button
-              onClick={cancelScreenCapture}
-              className="text-neutral-500 hover:text-white text-sm transition-colors"
-            >
-              Cancel
-            </button>
-          </div>
 
-          <div className="relative bg-neutral-900 border border-white/10 overflow-hidden">
-            <video
-              ref={screenVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-auto max-h-[70vh] object-contain"
+            {/* Corner brackets */}
+            {(['tl', 'tr', 'bl', 'br'] as const).map((id) => {
+              const s: React.CSSProperties = {
+                position: 'absolute',
+                width: 20,
+                height: 20,
+                border: '1px solid rgba(255,255,255,.3)',
+              };
+              if (id[0] === 't') {
+                s.top = 16;
+                s.borderBottom = 'none';
+              } else {
+                s.bottom = 16;
+                s.borderTop = 'none';
+              }
+              if (id[1] === 'l') {
+                s.left = 16;
+                s.borderRight = 'none';
+              } else {
+                s.right = 16;
+                s.borderLeft = 'none';
+              }
+              return <div key={id} style={s} />;
+            })}
+
+            {/* Center reticle */}
+            <div
+              style={{
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: `translate(-50%, -50%) rotate(${gyro.x * 3}deg)`,
+                width: 64,
+                height: 64,
+                border: '1px solid rgba(255,102,0,.6)',
+                display: 'grid',
+                placeItems: 'center',
+                transition: 'transform .1s',
+              }}
+            >
+              <div style={{ width: 6, height: 6, background: '#f60' }} />
+              <div style={{ position: 'absolute', width: 80, height: 1, background: 'rgba(255,102,0,.3)' }} />
+              <div style={{ position: 'absolute', width: 1, height: 80, background: 'rgba(255,102,0,.3)' }} />
+            </div>
+
+            {/* Bottom HUD */}
+            <div
+              style={{
+                position: 'absolute',
+                left: 16,
+                bottom: 16,
+                fontFamily: 'var(--mono)',
+                fontSize: 9,
+                color: 'rgba(255,255,255,.6)',
+                background: 'rgba(0,0,0,.5)',
+                padding: '6px 10px',
+                letterSpacing: '0.1em',
+              }}
+            >
+              <div>ACCEL_Z: {(9.8 + gyro.y * 0.1).toFixed(3)} G</div>
+              <div>EXPOSURE: 1/120 · ISO 400</div>
+              <div>FINGERPRINT: PENDING</div>
+            </div>
+
+            {/* Flash */}
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                background: '#fff',
+                opacity: capturing ? 1 : 0,
+                transition: 'opacity .1s',
+                pointerEvents: 'none',
+              }}
             />
-            
-            {/* Capture overlay */}
-            <div className={`absolute inset-0 bg-white pointer-events-none transition-opacity duration-200 ${capturing ? 'opacity-100' : 'opacity-0'}`}></div>
           </div>
 
-          <div className="mt-8 flex flex-col items-center gap-4">
-            <button
-              onClick={captureScreen}
-              disabled={capturing}
-              className="px-12 py-5 bg-orange-600 hover:bg-orange-700 text-white font-bold uppercase tracking-widest transition-colors disabled:opacity-50"
+          {permissionError && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: 96,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                background: 'rgba(0,0,0,.8)',
+                border: '1px solid var(--bad)',
+                color: 'var(--bad)',
+                padding: '10px 14px',
+                fontSize: 12,
+                fontFamily: 'var(--mono)',
+              }}
             >
-              Capture & Certify
-            </button>
-            <p className="text-neutral-600 text-xs text-center max-w-md">
-              Click the button above to capture the current screen content. The capture will be timestamped and certified on the blockchain.
-            </p>
-          </div>
+              {permissionError}
+            </div>
+          )}
+        </div>
+
+        {/* Shutter / inscribe bar */}
+        <div
+          style={{
+            padding: '24px',
+            borderTop: '1px solid rgba(255,255,255,.08)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 48,
+          }}
+        >
+          {capturedPreview ? (
+            <>
+              <button
+                onClick={reshoot}
+                className="btn"
+                style={{ color: '#fff', borderColor: 'rgba(255,255,255,.3)' }}
+              >
+                Retake
+              </button>
+              <button onClick={inscribe} className="btn btn-seal">
+                Inscribe & certify <IconArrow size={14} />
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: '50%',
+                  background: '#222',
+                  border: 'none',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  display: 'grid',
+                  placeItems: 'center',
+                }}
+                aria-label="Mute indicator"
+              >
+                <IconRadio size={18} />
+              </button>
+              <button
+                onClick={shoot}
+                style={{
+                  width: 84,
+                  height: 84,
+                  borderRadius: '50%',
+                  border: '2px solid rgba(255,255,255,.3)',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  display: 'grid',
+                  placeItems: 'center',
+                  padding: 0,
+                }}
+                aria-label="Capture photo"
+              >
+                <div style={{ width: 68, height: 68, borderRadius: '50%', background: '#fff' }} />
+              </button>
+              <div
+                style={{
+                  fontFamily: 'var(--mono)',
+                  fontSize: 10,
+                  color: '#666',
+                  letterSpacing: '0.15em',
+                }}
+              >
+                LIVE PROOF
+                <br />
+                PROTOCOL
+              </div>
+            </>
+          )}
         </div>
       </div>
     );
   }
 
-  // Camera mode (existing code)
+  /* -------- SCREEN MODE -------- */
   return (
-    <div className="min-h-[100dvh] bg-black relative flex flex-col md:justify-center overflow-hidden pb-20 md:pb-0">
-      
-      {/* Mobile Top Bar */}
-      <div className="md:hidden w-full h-16 bg-neutral-900 border-b border-white/10 flex items-center justify-between px-6 z-20">
-         <button onClick={() => setMode('select')} className="text-neutral-500 hover:text-white text-sm">
-           ← Back
-         </button>
-         <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-      </div>
-
-      {/* Desktop back button */}
-      <div className="hidden md:block absolute top-8 left-8 z-30">
-        <button onClick={() => setMode('select')} className="text-neutral-500 hover:text-white text-sm">
-          ← Back to options
+    <div
+      style={{
+        background: '#000',
+        minHeight: 'calc(100vh - 72px - 28px)',
+        padding: 48,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 20,
+        }}
+      >
+        <button
+          onClick={() => {
+            setMode('select');
+            reshoot();
+            setPermissionError(null);
+          }}
+          style={{ background: 'none', border: 'none', color: '#aaa', cursor: 'pointer', fontSize: 12 }}
+        >
+          ← Back
         </button>
-      </div>
-
-      {/* Viewfinder Container */}
-      <div className="relative w-full md:max-w-4xl aspect-[3/4] md:aspect-video bg-neutral-900 border-y md:border border-neutral-800 shadow-2xl overflow-hidden group mx-auto">
-        
-        <Webcam
-          audio={false}
-          ref={webcamRef}
-          screenshotFormat="image/jpeg"
-          width="100%"
-          height="100%"
-          videoConstraints={{ facingMode: facingMode }}
-          playsInline={true}
-          muted={true}
-          className="absolute inset-0 w-full h-full object-cover opacity-90"
-        />
-
-        {/* HUD Overlay */}
-        <div className="absolute inset-0 pointer-events-none p-6 md:p-12 flex flex-col justify-between z-10">
-          
-          <div className="flex justify-between items-start">
-             <div className="space-y-1">
-               <div className="flex items-center gap-2">
-                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                 <span className="font-mono text-[10px] text-white uppercase tracking-widest bg-black/50 px-2 py-1">
-                   Witness Mode: Active
-                 </span>
-               </div>
-               {sensors.gps && (
-                 <div className="font-mono text-[9px] text-orange-500 flex items-center gap-1 bg-black/50 px-2">
-                   <MapPin size={8} />
-                   {sensors.gps.lat.toFixed(4)}, {sensors.gps.lng.toFixed(4)}
-                 </div>
-               )}
-             </div>
-          </div>
-
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 border border-white/20 flex items-center justify-center">
-             <div className="w-1 h-1 bg-white/50"></div>
-             <div 
-               className="absolute w-24 h-px bg-orange-600/50 transition-transform duration-100"
-               style={{ transform: `rotate(${gyroVis.x * 5}deg) translateY(${gyroVis.y * 5}px)` }}
-             ></div>
-          </div>
-
-          <div className="flex justify-between items-end">
-            <div className="font-mono text-[9px] text-neutral-500 space-y-1 bg-black/50 p-2">
-               <p>ACCEL_Z: {sensors.motion?.z.toFixed(2)} G</p>
-               <p>ENTROPY: {(Math.random() * 100).toFixed(0)}%</p>
-            </div>
-            
-            <div className="flex flex-col items-end gap-1">
-              <span className="text-[9px] uppercase text-neutral-400 tracking-wider bg-black/50 px-1">Trust Score</span>
-              <div className="flex gap-1">
-                <div className="w-1 h-3 bg-orange-600"></div>
-                <div className="w-1 h-3 bg-orange-600"></div>
-                <div className="w-1 h-3 bg-orange-600"></div>
-                <div className="w-1 h-3 bg-orange-600 opacity-50"></div>
-                <div className="w-1 h-3 bg-orange-600 opacity-20"></div>
-              </div>
-            </div>
-          </div>
-
-          <div className="absolute top-0 left-1/3 bottom-0 w-px bg-white/5"></div>
-          <div className="absolute top-0 right-1/3 bottom-0 w-px bg-white/5"></div>
-          <div className="absolute left-0 top-1/3 right-0 h-px bg-white/5"></div>
-          <div className="absolute left-0 bottom-1/3 right-0 h-px bg-white/5"></div>
-
+        <div
+          style={{
+            fontFamily: 'var(--mono)',
+            fontSize: 10,
+            letterSpacing: '0.2em',
+            color: '#fff',
+          }}
+        >
+          <span
+            className="pulsedot"
+            style={{
+              display: 'inline-block',
+              width: 8,
+              height: 8,
+              background: '#f60',
+              borderRadius: '50%',
+              marginRight: 8,
+              verticalAlign: 'middle',
+            }}
+          />
+          SCREEN CAPTURE
         </div>
-
-        <div className={`absolute inset-0 bg-white pointer-events-none transition-opacity duration-200 z-20 ${capturing ? 'opacity-100' : 'opacity-0'}`}></div>
-
       </div>
-
-      <div className="mt-8 flex items-center justify-center gap-8 relative z-30">
-         <button 
-           onClick={toggleCamera}
-           className="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center text-white hover:bg-neutral-700 transition-colors"
-         >
-           <SwitchCamera size={20} />
-         </button>
-
-         <button 
-           onClick={handleCameraCapture}
-           disabled={capturing}
-           className="w-20 h-20 rounded-full border-4 border-white/20 flex items-center justify-center hover:border-orange-600 transition-colors group active:scale-95"
-         >
-            <div className="w-16 h-16 bg-white rounded-full group-hover:bg-orange-600 transition-colors"></div>
-         </button>
-
-         <div className="w-12"></div>
+      <div
+        style={{
+          border: '1px solid rgba(255,255,255,.1)',
+          aspectRatio: '16/10',
+          background: '#111',
+          display: 'grid',
+          placeItems: 'center',
+          color: 'rgba(255,255,255,.3)',
+          fontFamily: 'var(--mono)',
+          fontSize: 12,
+          letterSpacing: '0.15em',
+          overflow: 'hidden',
+        }}
+      >
+        {capturedPreview ? (
+          <img
+            src={capturedPreview}
+            alt="screen capture"
+            style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }}
+          />
+        ) : (
+          <span>{permissionError ? permissionError : '[ AWAITING SCREEN FEED ]'}</span>
+        )}
       </div>
-
-      <p className="mt-6 font-mono text-[10px] text-neutral-500 uppercase tracking-widest text-center">
-        Live Provenance Protocol • Do not move device
-      </p>
-
+      <div style={{ marginTop: 32, textAlign: 'center', display: 'flex', gap: 12, justifyContent: 'center' }}>
+        {capturedPreview ? (
+          <>
+            <button
+              className="btn"
+              style={{ color: '#fff', borderColor: 'rgba(255,255,255,.3)' }}
+              onClick={() => {
+                reshoot();
+                void handleScreenMode();
+              }}
+            >
+              Retake
+            </button>
+            <button onClick={inscribe} className="btn btn-seal" style={{ padding: '18px 40px' }}>
+              Inscribe & certify <IconArrow size={14} />
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={handleScreenMode}
+            className="btn btn-seal"
+            style={{ padding: '18px 40px' }}
+          >
+            Capture screen <IconArrow size={14} />
+          </button>
+        )}
+      </div>
     </div>
   );
 };

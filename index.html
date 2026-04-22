@@ -3,198 +3,76 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <title>Origynl | Prove Your Documents Are Real</title>
-    
-    <!-- PWA Meta Tags -->
-    <meta name="description" content="Prove your documents are real. Certify them on the blockchain." />
+    <title>Origynl · Proof-of-Origin Ledger</title>
+
+    <meta name="description" content="A forensic ledger for originals. Inscribe a file's fingerprint to a public blockchain and prove when it existed, unchanged." />
     <meta name="theme-color" content="#0a0a0a" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Origynl" />
-    
-    <!-- PWA Manifest -->
+
     <link rel="manifest" href="/manifest.json" />
-    
-    <!-- Icons -->
     <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
     <link rel="apple-touch-icon" href="/icons/icon.svg" />
-    
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Playfair Display:ital,wght@0,400;0,500;0,600;1,400;1,500&display=swap" rel="stylesheet">
+
+    <!-- Fonts: Instrument Serif, IBM Plex Sans, JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- No-FOUC theme bootstrap -->
     <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-              serif: ['Playfair Display', 'serif'],
-            },
-            colors: {
-              neutral: {
-                850: '#1a1a1a',
-                900: '#121212',
-                950: '#050505', // True Void
-              },
-              orange: {
-                500: '#f97316',
-                600: '#ea580c',
-                700: '#c2410c',
-              }
-            },
-            animation: {
-              'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-            }
-          }
+      (function () {
+        try {
+          var theme = localStorage.getItem('origynl.theme') || 'dark';
+          var accent = localStorage.getItem('origynl.accent') || 'orange';
+          var density = localStorage.getItem('origynl.density') || 'comfy';
+          document.documentElement.setAttribute('data-theme', theme);
+          var accentMap = {
+            orange: ['oklch(0.72 0.17 55)', 'oklch(0.72 0.17 55 / 0.1)'],
+            blue: ['oklch(0.70 0.17 250)', 'oklch(0.70 0.17 250 / 0.1)'],
+            green: ['oklch(0.78 0.18 150)', 'oklch(0.78 0.18 150 / 0.1)'],
+            mono: ['oklch(0.8 0 0)', 'oklch(0.8 0 0 / 0.1)'],
+          };
+          var pair = accentMap[accent] || accentMap.orange;
+          document.documentElement.style.setProperty('--seal', pair[0]);
+          document.documentElement.style.setProperty('--seal-wash', pair[1]);
+          document.documentElement.style.setProperty('--grid', density === 'dense' ? '6px' : '8px');
+        } catch (e) {}
+      })();
+    </script>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "viem": "https://aistudiocdn.com/viem@^2.40.3",
+          "viem/": "https://aistudiocdn.com/viem@^2.40.3/",
+          "react/": "https://aistudiocdn.com/react@^19.2.0/",
+          "react": "https://aistudiocdn.com/react@^19.2.0",
+          "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+          "pdf-lib": "https://aistudiocdn.com/pdf-lib@^1.17.1",
+          "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
+          "react-webcam": "https://aistudiocdn.com/react-webcam@^7.2.0",
+          "piexifjs": "https://aistudiocdn.com/piexifjs@^1.0.6"
         }
       }
     </script>
-    <style>
-      body {
-        background-color: #050505;
-        color: #e5e5e5;
-        overflow-x: hidden;
-      }
-      
-      /* Film Grain Texture */
-      .film-grain {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-        z-index: 9999;
-        opacity: 0.04;
-        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-      }
-
-      ::selection {
-        background: #ea580c;
-        color: #000;
-      }
-
-      /* Custom Scrollbar */
-      ::-webkit-scrollbar {
-        width: 6px;
-      }
-      ::-webkit-scrollbar-track {
-        background: #050505;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #333;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #ea580c;
-      }
-      
-      /* PWA Install Banner */
-      .pwa-install-banner {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        background: #1a1a1a;
-        border-top: 1px solid #333;
-        padding: 16px;
-        z-index: 9998;
-        display: none;
-      }
-      .pwa-install-banner.show {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-      }
-    </style>
-  <script type="importmap">
-{
-  "imports": {
-    "viem": "https://aistudiocdn.com/viem@^2.40.3",
-    "viem/": "https://aistudiocdn.com/viem@^2.40.3/",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "pdf-lib": "https://aistudiocdn.com/pdf-lib@^1.17.1",
-    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.6",
-    "react-webcam": "https://aistudiocdn.com/react-webcam@^7.2.0",
-    "piexifjs": "https://aistudiocdn.com/piexifjs@^1.0.6"
-  }
-}
-</script>
-<link rel="stylesheet" href="/index.css">
-</head>
-  <body>
-    <div className="film-grain"></div>
+  </head>
+  <body class="grain">
     <div id="root"></div>
-    
-    <!-- PWA Install Banner -->
-    <div id="pwa-install-banner" class="pwa-install-banner">
-      <div style="flex: 1;">
-        <div style="font-weight: 600; color: #fff; margin-bottom: 2px;">Install Origynl</div>
-        <div style="font-size: 12px; color: #737373;">Add to your home screen for quick access</div>
-      </div>
-      <button id="pwa-install-btn" style="background: #ea580c; color: #fff; padding: 10px 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; border: none; cursor: pointer;">
-        Install
-      </button>
-      <button id="pwa-dismiss-btn" style="background: none; border: none; color: #525252; padding: 8px; cursor: pointer; font-size: 18px;">
-        ✕
-      </button>
-    </div>
-    
     <script type="module" src="/index.tsx"></script>
-    
-    <!-- Register Service Worker & Handle Install -->
     <script>
-      // Register service worker
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js')
-            .then((reg) => console.log('SW registered:', reg.scope))
-            .catch((err) => console.log('SW registration failed:', err));
+        window.addEventListener('load', function () {
+          navigator.serviceWorker
+            .register('/sw.js')
+            .then(function (reg) { console.log('SW registered:', reg.scope); })
+            .catch(function (err) { console.log('SW registration failed:', err); });
         });
       }
-      
-      // PWA Install prompt
-      let deferredPrompt;
-      const banner = document.getElementById('pwa-install-banner');
-      const installBtn = document.getElementById('pwa-install-btn');
-      const dismissBtn = document.getElementById('pwa-dismiss-btn');
-      
-      window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        deferredPrompt = e;
-        
-        // Check if user previously dismissed
-        if (!localStorage.getItem('pwa-dismissed')) {
-          banner.classList.add('show');
-        }
-      });
-      
-      installBtn.addEventListener('click', async () => {
-        if (!deferredPrompt) return;
-        
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        
-        if (outcome === 'accepted') {
-          console.log('PWA installed');
-        }
-        
-        deferredPrompt = null;
-        banner.classList.remove('show');
-      });
-      
-      dismissBtn.addEventListener('click', () => {
-        banner.classList.remove('show');
-        localStorage.setItem('pwa-dismissed', 'true');
-      });
-      
-      // Hide banner if already installed
-      window.addEventListener('appinstalled', () => {
-        banner.classList.remove('show');
-        deferredPrompt = null;
-      });
     </script>
   </body>
 </html>
