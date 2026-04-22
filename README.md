@@ -8,7 +8,7 @@ Blockchain-anchored document authentication. Upload a file, get an immutable pro
 
 Origynl stamps documents and images with SHA-256 cryptographic hashes recorded permanently on the Polygon blockchain. No middleman, no trust assumptions. The hash is the proof, and the chain is the receipt.
 
-**Live:** [origynl-20.vercel.app](https://origynl-20.vercel.app)
+**Live:** [origynl.vercel.app](https://origynl.vercel.app)
 
 ## What It Does
 
