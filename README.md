@@ -1,3 +1,5 @@
+![Alt text](images/logo.png)
+
 # Origynl
 
 Blockchain-anchored document authentication. Upload a file, get an immutable proof.
