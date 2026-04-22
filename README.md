@@ -4,7 +4,7 @@
 
 # Origynl
 
-Blockchain-anchored document authentication. Upload a file, get an immutable proof.
+Blockchain-anchored file authentication. Upload a file, get an immutable proof.
 
 Origynl stamps documents and images with SHA-256 cryptographic hashes recorded permanently on the Polygon blockchain. No middleman, no trust assumptions. The hash is the proof, and the chain is the receipt.
 
