@@ -1,362 +1,407 @@
-
-import React, { useState, useRef } from 'react';
-import { Search, Check, X, Upload, ShieldCheck, ExternalLink, MapPin, Radio, FileSearch, Zap, FileCheck, Database, FileText } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { computeFileHash } from '../services/hashService';
 import { findRecordByHash } from '../services/chainService';
-import { extractHashFromMetadata } from '../services/imageService';
-import { VerificationResult, VerificationStatus } from '../types';
+import { ChainRecord } from '../types';
+import { HashStrip } from '../components/HashStrip';
+import { SealGraphic } from '../components/SealGraphic';
+import { IconArrow, IconCheck, IconExt, IconFile, IconSearch, IconX } from '../components/Icons';
+
+type State = 'IDLE' | 'SEARCHING' | 'AUTHENTIC' | 'NOT_FOUND' | 'ERROR';
+
+function shortHash(h?: string | null, tailLen = 4): string {
+  if (!h) return '—';
+  const clean = h.replace(/^0x/, '');
+  if (clean.length <= 14) return h;
+  return `${h.slice(0, 12)}…${clean.slice(-tailLen)}`;
+}
 
 export const Verify: React.FC = () => {
+  const location = useLocation();
+  const [input, setInput] = useState('');
+  const [state, setState] = useState<State>('IDLE');
   const [file, setFile] = useState<File | null>(null);
-  const [inputHash, setInputHash] = useState('');
-  const [result, setResult] = useState<VerificationResult>({ status: VerificationStatus.IDLE });
-  const [processStep, setProcessStep] = useState<'IDLE' | 'READING' | 'ANALYZING' | 'HASHING' | 'LOOKUP'>('IDLE');
-  const [verifiedByMetadata, setVerifiedByMetadata] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const dropZoneRef = useRef<HTMLDivElement>(null);
+  const [record, setRecord] = useState<ChainRecord | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [usedHash, setUsedHash] = useState<string>('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleVerify = async (fileToVerify?: File, hashToVerify?: string) => {
-    setResult({ status: VerificationStatus.PROCESSING });
-    setVerifiedByMetadata(false);
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const queryHash = params.get('hash');
+    if (queryHash) {
+      setInput(queryHash);
+      void runLookup(queryHash);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
 
+  const reset = () => {
+    setState('IDLE');
+    setFile(null);
+    setInput('');
+    setRecord(null);
+    setError(null);
+    setUsedHash('');
+  };
+
+  const runLookup = async (hashOrTx: string) => {
+    setState('SEARCHING');
+    setError(null);
+    setUsedHash(hashOrTx);
     try {
-      let targetHash = hashToVerify || '';
-
-      if (fileToVerify) {
-        setProcessStep('READING');
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        setProcessStep('ANALYZING');
-        
-        // 1. Try to extract hash from metadata first
-        const embeddedHash = await extractHashFromMetadata(fileToVerify);
-        
-        if (embeddedHash) {
-          console.log("Found Embedded Hash:", embeddedHash);
-          targetHash = embeddedHash;
-          setVerifiedByMetadata(true);
-        } else {
-          // 2. Fallback to raw content hashing
-          setProcessStep('HASHING');
-          await new Promise(resolve => setTimeout(resolve, 400));
-          targetHash = await computeFileHash(fileToVerify);
-        }
-      } else if (!hashToVerify && inputHash) {
-        targetHash = inputHash.trim();
-      }
-
-      if (!targetHash) {
-        setProcessStep('IDLE');
-        setResult({ status: VerificationStatus.IDLE });
-        return;
-      }
-
-      setProcessStep('LOOKUP');
-      const record = await findRecordByHash(targetHash);
-
-      if (record) {
-        setResult({
-          status: VerificationStatus.AUTHENTIC,
-          originalRecord: record,
-          currentHash: targetHash
-        });
+      const found = await findRecordByHash(hashOrTx.trim());
+      if (found) {
+        setRecord(found);
+        setState('AUTHENTIC');
       } else {
-        setResult({
-          status: VerificationStatus.NOT_FOUND,
-          currentHash: targetHash
-        });
+        setRecord(null);
+        setState('NOT_FOUND');
       }
-
-    } catch (e) {
-      console.error(e);
-      setResult({ status: VerificationStatus.IDLE });
-    } finally {
-      setProcessStep('IDLE');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Lookup failed';
+      setError(msg);
+      setState('ERROR');
     }
   };
 
-  const handleFileDrop = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const f = e.target.files[0];
-      setFile(f);
-      handleVerify(f);
+  const runFile = async (f: File) => {
+    setFile(f);
+    setState('SEARCHING');
+    setError(null);
+    try {
+      const hash = await computeFileHash(f);
+      setUsedHash(hash);
+      const found = await findRecordByHash(hash);
+      if (found) {
+        setRecord(found);
+        setState('AUTHENTIC');
+      } else {
+        setRecord(null);
+        setState('NOT_FOUND');
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Lookup failed';
+      setError(msg);
+      setState('ERROR');
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    setIsDragging(true);
+    const f = e.dataTransfer.files?.[0];
+    if (f) void runFile(f);
   };
 
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const f = e.dataTransfer.files[0];
-      setFile(f);
-      handleVerify(f);
-    }
-  };
-
-  const isLoading = processStep !== 'IDLE';
-
-  const getStepMessage = () => {
-    switch (processStep) {
-      case 'READING': return 'Reading file...';
-      case 'ANALYZING': return 'Checking for embedded certificate...';
-      case 'HASHING': return 'Computing fingerprint...';
-      case 'LOOKUP': return 'Searching blockchain records...';
-      default: return '';
-    }
-  };
+  const timestampLabel = record
+    ? new Date(record.timestamp).toISOString().replace('T', ' ').slice(0, 19) + 'Z'
+    : '—';
 
   return (
-    <div 
-      ref={dropZoneRef}
-      className={`flex flex-col items-center justify-center min-h-[80vh] p-4 md:p-16 w-full max-w-7xl mx-auto transition-all duration-300 ${isDragging ? 'bg-orange-600/5' : ''}`}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
-      
-      {/* Drag overlay */}
-      {isDragging && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center pointer-events-none">
-          <div className="border-2 border-dashed border-orange-600 rounded-lg p-16 text-center">
-            <Upload className="w-16 h-16 text-orange-600 mx-auto mb-4" />
-            <p className="text-2xl text-white font-serif">Drop file to verify</p>
-            <p className="text-neutral-400 mt-2">We'll check if it's been certified</p>
+    <div style={{ padding: '64px 48px', maxWidth: 1200, margin: '0 auto' }}>
+      <div style={{ marginBottom: 48 }}>
+        <div className="label" style={{ color: 'var(--seal)' }}>
+          § VERIFY · AUTHENTICATION LOOKUP
+        </div>
+        <h1
+          className="serif"
+          style={{
+            fontSize: 'clamp(56px, 7vw, 112px)',
+            letterSpacing: '-0.035em',
+            lineHeight: 1.02,
+            marginTop: 12,
+          }}
+        >
+          Is it the<br />original?
+        </h1>
+        <p style={{ marginTop: 32, color: 'var(--ink-dim)', fontSize: 17, maxWidth: 640 }}>
+          Drop a file or paste a transaction hash. We'll ask the chain whether the fingerprint was ever inscribed, and return the full block record if so.
+        </p>
+      </div>
+
+      {state === 'IDLE' && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 0,
+            border: '1px solid var(--rule)',
+          }}
+        >
+          <div
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={onDrop}
+            onClick={() => inputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+            style={{
+              padding: 48,
+              borderRight: '1px solid var(--rule)',
+              cursor: 'pointer',
+              textAlign: 'center',
+              background: 'var(--bg-1)',
+            }}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) void runFile(f);
+              }}
+            />
+            <div
+              style={{
+                display: 'inline-flex',
+                width: 56,
+                height: 56,
+                borderRadius: '50%',
+                border: '1px solid var(--rule)',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--ink-dim)',
+              }}
+            >
+              <IconFile size={20} />
+            </div>
+            <div style={{ marginTop: 18, fontSize: 15 }}>Drop a file here</div>
+            <div className="label-sm" style={{ marginTop: 6 }}>
+              We'll fingerprint it locally
+            </div>
+          </div>
+          <div style={{ padding: 48 }}>
+            <div className="label">BY TRANSACTION OR HASH</div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (input.trim()) void runLookup(input.trim());
+              }}
+              style={{
+                marginTop: 16,
+                border: '1px solid var(--rule)',
+                padding: '14px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+              }}
+            >
+              <IconSearch size={16} style={{ color: 'var(--ink-mute)' }} />
+              <input
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="0x… or SHA-256 fingerprint"
+                style={{ flex: 1, fontSize: 13 }}
+                aria-label="Transaction or hash"
+              />
+            </form>
+            <button
+              className="btn btn-seal"
+              style={{ marginTop: 16, width: '100%', justifyContent: 'space-between' }}
+              onClick={() => input.trim() && runLookup(input.trim())}
+              disabled={!input.trim()}
+            >
+              <span>Query ledger</span>
+              <IconArrow size={14} />
+            </button>
           </div>
         </div>
       )}
 
-      <div className="w-full max-w-2xl mb-8 md:mb-16 text-center space-y-4 px-4">
-        <h1 className="font-serif text-4xl md:text-6xl text-white">Verify Authenticity</h1>
-        <p className="text-neutral-500 font-light text-sm md:text-base">
-          Drop a file anywhere on this page to check if it's been certified, or paste a transaction ID below.
-        </p>
-      </div>
-
-      <div className="w-full max-w-3xl space-y-4 md:space-y-8 px-4">
-        
-        {/* Drop zone card */}
-        <label className="block cursor-pointer group">
-          <input type="file" className="hidden" onChange={handleFileDrop} />
-          <div className="border border-dashed border-neutral-800 hover:border-orange-600 hover:bg-orange-600/5 transition-all p-8 text-center">
-            <div className="w-14 h-14 rounded-full border border-neutral-800 group-hover:border-orange-600 flex items-center justify-center mx-auto mb-4 transition-colors">
-              <FileText className="w-6 h-6 text-neutral-600 group-hover:text-orange-600 transition-colors" />
-            </div>
-            <p className="text-neutral-400 group-hover:text-white transition-colors">Drop a file here or click to browse</p>
-            <p className="text-neutral-600 text-xs mt-2">We'll compute its fingerprint and search the blockchain</p>
+      {state === 'SEARCHING' && (
+        <div style={{ padding: 64, border: '1px solid var(--rule)', textAlign: 'center' }}>
+          <div
+            style={{
+              display: 'inline-block',
+              width: 48,
+              height: 48,
+              border: '1px solid var(--rule)',
+              borderTopColor: 'var(--seal)',
+              borderRadius: '50%',
+              animation: 'sealspin 1s linear infinite',
+            }}
+            aria-hidden="true"
+          />
+          <div className="label" style={{ marginTop: 20 }}>
+            Querying Polygon ledger…
           </div>
-        </label>
-
-        <div className="flex items-center gap-4">
-          <div className="flex-1 h-px bg-neutral-800"></div>
-          <span className="text-neutral-600 text-xs uppercase tracking-widest">or search by hash</span>
-          <div className="flex-1 h-px bg-neutral-800"></div>
+          <div className="mono" style={{ fontSize: 11, color: 'var(--ink-mute)', marginTop: 6 }}>
+            reading records[{(file?.name || input).slice(0, 24)}…]
+          </div>
         </div>
+      )}
 
-        <div className="relative group">
-          <div className="absolute inset-0 bg-gradient-to-r from-orange-600 to-orange-900 blur opacity-20 group-hover:opacity-30 transition-opacity duration-500 rounded-lg"></div>
-          
-          {/* Mobile-friendly search layout */}
-          <div className="relative bg-neutral-950 border border-white/10 p-2 flex flex-col md:flex-row md:items-center gap-2">
-            
-            {/* Search Input */}
-            <div className="flex-1 flex items-center gap-3 px-3 md:px-4">
-               <Search className="text-neutral-600 shrink-0" size={20} />
-               <input 
-                 type="text" 
-                 placeholder="File hash or transaction ID (0x...)..." 
-                 className="bg-transparent w-full py-3 md:py-4 text-white placeholder-neutral-700 font-mono text-sm focus:outline-none"
-                 value={inputHash}
-                 onChange={(e) => setInputHash(e.target.value)}
-               />
+      {state === 'AUTHENTIC' && record && (
+        <div
+          style={{ border: '2px solid var(--ok)', background: 'var(--bg-1)', position: 'relative' }}
+        >
+          <div
+            style={{
+              padding: '16px 24px',
+              borderBottom: '1px solid var(--rule)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'color-mix(in oklch, var(--ok) 10%, var(--bg-1))',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <IconCheck size={18} stroke={2.5} style={{ color: 'var(--ok)' }} />
+              <span className="label" style={{ color: 'var(--ok)' }}>
+                AUTHENTIC · MATCH CONFIRMED
+              </span>
             </div>
-            
-            {/* Action button */}
-            <div className="flex items-center gap-2 border-t md:border-t-0 md:border-l border-white/10 pt-2 md:pt-0 md:pl-2">
-              <button 
-                onClick={() => handleVerify(undefined, inputHash)}
-                disabled={!inputHash || isLoading}
-                className="bg-white text-black px-6 md:px-8 py-3 md:py-4 text-xs font-bold uppercase tracking-widest hover:bg-neutral-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-1 md:flex-none"
+            <span className="label-sm">
+              Record tier: {record.provenanceType === 'LIVE_CAPTURE' ? 'LIVE WITNESS' : 'STANDARD'}
+            </span>
+          </div>
+          <div
+            style={{
+              padding: 40,
+              display: 'grid',
+              gridTemplateColumns: '1fr 300px',
+              gap: 48,
+            }}
+          >
+            <div>
+              <div
+                className="serif"
+                style={{ fontSize: 56, letterSpacing: '-0.03em', lineHeight: 1.02 }}
               >
-                Verify
-              </button>
+                Verified<br />against chain.
+              </div>
+              <p style={{ marginTop: 16, color: 'var(--ink-dim)' }}>
+                The fingerprint of the file you provided appears in the OrigynlLedger contract and was recorded
+                {record.blockHeight ? <> at block <b>#{record.blockHeight.toLocaleString()}</b></> : ''}
+                . The file has not been modified since certification.
+              </p>
+              <dl className="kv" style={{ marginTop: 32 }}>
+                <dt>FILE</dt>
+                <dd>{file?.name || record.fileName || 'document via hash lookup'}</dd>
+                <dt>FINGERPRINT</dt>
+                <dd style={{ wordBreak: 'break-all' }}>{record.hash}</dd>
+                <dt>TX</dt>
+                <dd style={{ color: 'var(--seal)' }}>
+                  {record.txHash ? (
+                    <a
+                      href={`https://amoy.polygonscan.com/tx/${record.txHash}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: 'var(--seal)' }}
+                    >
+                      {shortHash(record.txHash)}{' '}
+                      <IconExt size={10} style={{ verticalAlign: 'middle' }} />
+                    </a>
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+                <dt>BLOCK</dt>
+                <dd>{record.blockHeight ? `#${record.blockHeight.toLocaleString()}` : '—'}</dd>
+                <dt>SIGNER</dt>
+                <dd>{record.sender ? shortHash(record.sender) : '—'}</dd>
+                <dt>WITNESSED</dt>
+                <dd>{timestampLabel}</dd>
+                <dt>TIER</dt>
+                <dd style={{ color: 'var(--seal)' }}>
+                  {record.provenanceType === 'LIVE_CAPTURE'
+                    ? 'LIVE CAPTURE · sensor bound'
+                    : 'STANDARD · file hash'}
+                </dd>
+              </dl>
+              <div style={{ marginTop: 32, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {record.txHash && (
+                  <a
+                    className="btn"
+                    href={`https://amoy.polygonscan.com/tx/${record.txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    View on PolygonScan <IconExt size={14} />
+                  </a>
+                )}
+                <button className="btn btn-ghost" onClick={reset}>
+                  Verify another
+                </button>
+              </div>
             </div>
+            <div
+              style={{
+                color: 'var(--ink-dim)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <SealGraphic size={260} />
+            </div>
+          </div>
+          <div
+            style={{
+              borderTop: '1px solid var(--rule)',
+              padding: '16px 24px',
+              display: 'grid',
+              gridTemplateColumns: 'auto 1fr',
+              gap: 20,
+              alignItems: 'center',
+            }}
+          >
+            <span className="label">SHA-256 Map</span>
+            <HashStrip hash={record.hash} />
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="mt-12 md:mt-24 w-full max-w-xl transition-all duration-700 ease-out transform px-4">
-        
-        {isLoading && (
-           <div className="flex flex-col items-center space-y-6">
-             <div className="w-12 h-12 border-2 border-white/10 border-t-orange-600 rounded-full animate-spin"></div>
-             <span className="font-mono text-xs uppercase tracking-widest text-neutral-500 animate-pulse text-center">
-               {getStepMessage()}
-             </span>
-             {file && (
-               <span className="text-neutral-600 text-xs">{file.name}</span>
-             )}
-           </div>
-        )}
-
-        {!isLoading && result.status === VerificationStatus.AUTHENTIC && (
-          <div className={`bg-[#fcfbf9] text-black p-6 md:p-12 shadow-2xl relative border-t-4 ${result.originalRecord?.isSimulation ? 'border-yellow-500' : 'border-orange-600'}`}>
-            
-            {/* Live Capture Ribbon */}
-            {result.originalRecord?.provenanceType === 'LIVE_CAPTURE' && (
-              <div className="absolute top-0 right-0 p-2 md:p-4">
-                <div className="flex items-center gap-2 px-2 md:px-3 py-1 bg-orange-600 text-white rounded-sm shadow-lg">
-                   <Radio size={14} className="animate-pulse" />
-                   <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest">Witness Verified</span>
-                </div>
-              </div>
-            )}
-
-            {/* Simulation Ribbon */}
-            {result.originalRecord?.isSimulation && (
-              <div className="absolute top-0 left-0 p-2 md:p-4">
-                <div className="flex items-center gap-2 px-2 md:px-3 py-1 bg-yellow-500 text-black rounded-sm shadow-lg">
-                   <Database size={14} />
-                   <span className="text-[9px] md:text-[10px] font-bold uppercase tracking-widest">Local Simulation</span>
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-between items-start mb-6 md:mb-8 mt-8 md:mt-0">
-               <div>
-                 <div className="flex items-center gap-2 mb-2">
-                    <ShieldCheck className={result.originalRecord?.isSimulation ? "text-yellow-600" : "text-orange-600"} size={20} />
-                    <span className={`text-xs uppercase tracking-widest font-bold ${result.originalRecord?.isSimulation ? "text-yellow-600" : "text-orange-600"}`}>Authentic Asset</span>
-                 </div>
-                 <h2 className="font-serif text-2xl md:text-3xl font-bold text-neutral-900">Verification Success</h2>
-                 {verifiedByMetadata && (
-                   <div className="mt-2 flex items-center gap-2 text-neutral-500">
-                     <FileSearch size={12} />
-                     <span className="text-[10px] uppercase tracking-wide">Matched via Embedded Metadata</span>
-                   </div>
-                 )}
-                 {file && (
-                   <div className="mt-2 text-neutral-500 text-xs">
-                     File: {file.name}
-                   </div>
-                 )}
-               </div>
-            </div>
-
-            <div className="space-y-4 md:space-y-6 font-mono text-xs uppercase tracking-wide bg-neutral-100 p-4 md:p-6 border border-neutral-200">
-              
-              <div className="flex items-center gap-3 pb-4 border-b border-neutral-200">
-                 {result.originalRecord?.provenanceType === 'LIVE_CAPTURE' ? (
-                   <>
-                     <div className="p-2 bg-orange-100 rounded-full text-orange-600 shrink-0">
-                        <Zap size={16} />
-                     </div>
-                     <div className="min-w-0">
-                       <span className="block text-neutral-500 text-[9px]">Provenance Tier</span>
-                       <span className="font-bold text-orange-600">Live Witness Protocol</span>
-                     </div>
-                   </>
-                 ) : (
-                   <>
-                     <div className="p-2 bg-neutral-200 rounded-full text-neutral-600 shrink-0">
-                        <FileCheck size={16} />
-                     </div>
-                     <div className="min-w-0">
-                       <span className="block text-neutral-500 text-[9px]">Provenance Tier</span>
-                       <span className="font-bold text-neutral-800">Standard Digital Audit</span>
-                     </div>
-                   </>
-                 )}
-              </div>
-
-              {result.originalRecord?.geoTag && (
-                 <div className="flex items-center gap-2 pb-4 border-b border-neutral-200">
-                    <MapPin size={14} className="text-neutral-500 shrink-0" />
-                    <div className="min-w-0">
-                      <span className="block text-neutral-500 text-[9px]">Capture Location</span>
-                      <span className="font-bold text-neutral-800">{result.originalRecord.geoTag}</span>
-                    </div>
-                 </div>
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                 <div className="min-w-0">
-                   <span className="block text-neutral-500 text-[10px] mb-1">Originator</span>
-                   {result.originalRecord?.isSimulation ? (
-                     <span className="font-bold text-neutral-900">{result.originalRecord.sender}</span>
-                   ) : (
-                     <a 
-                        href={`https://amoy.polygonscan.com/address/${result.originalRecord?.sender}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 font-bold text-neutral-900 hover:text-orange-600 transition-colors"
-                     >
-                       <span className="truncate">{result.originalRecord?.sender}</span>
-                       <ExternalLink size={10} className="shrink-0" />
-                     </a>
-                   )}
-                 </div>
-                 <div>
-                   <span className="block text-neutral-500 text-[10px] mb-1">Block Height</span>
-                   {result.originalRecord?.isSimulation ? (
-                     <span className="font-bold text-neutral-900">N/A (Local)</span>
-                   ) : (
-                     <a 
-                        href={`https://amoy.polygonscan.com/block/${result.originalRecord?.blockHeight}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 font-bold text-neutral-900 hover:text-orange-600 transition-colors"
-                     >
-                        <span>#{result.originalRecord?.blockHeight}</span>
-                     </a>
-                   )}
-                 </div>
-              </div>
-
-              <div className="min-w-0">
-                 <span className="block text-neutral-500 text-[10px] mb-1">File Checksum (SHA-256)</span>
-                 <span className="block font-bold break-all leading-relaxed text-neutral-600 text-[10px] md:text-xs">{result.originalRecord?.hash}</span>
-              </div>
-            </div>
-
-            <div className="mt-6 md:mt-8 text-center">
-               <p className="font-serif italic text-sm text-neutral-500">
-                 {result.originalRecord?.isSimulation 
-                   ? "Record verified against local demo session storage."
-                   : "Record verified against immutable Polygon ledger."}
-               </p>
-            </div>
+      {state === 'NOT_FOUND' && (
+        <div style={{ border: '2px solid var(--bad)', padding: 48 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
+            <IconX size={22} stroke={2.5} style={{ color: 'var(--bad)' }} />
+            <span className="label" style={{ color: 'var(--bad)' }}>
+              NO RECORD · FINGERPRINT NOT ON LEDGER
+            </span>
           </div>
-        )}
-
-        {!isLoading && result.status === VerificationStatus.NOT_FOUND && (
-          <div className="border border-red-900/50 bg-red-950/10 p-6 md:p-12 text-center">
-             <X className="w-12 h-12 text-red-600 mx-auto mb-6 opacity-50" />
-             <h2 className="font-serif text-2xl md:text-3xl text-white mb-4">Not Found</h2>
-             <p className="text-neutral-400 text-sm max-w-xs mx-auto mb-8 leading-relaxed">
-               This document has not been certified with Origynl, or the file has been modified since certification.
-             </p>
-             {file && (
-               <p className="text-neutral-500 text-xs mb-4">File: {file.name}</p>
-             )}
-             <div className="font-mono text-[10px] text-neutral-500 uppercase">
-               Checked Hash: <span className="text-red-400 break-all">{result.currentHash}</span>
-             </div>
+          <h2
+            className="serif"
+            style={{ fontSize: 48, letterSpacing: '-0.025em', lineHeight: 1.02 }}
+          >
+            This file has no witness.
+          </h2>
+          <p style={{ marginTop: 20, color: 'var(--ink-dim)', maxWidth: 560 }}>
+            Either the file was never certified through Origynl, <em>or</em> it has been modified since certification — even a single byte difference produces an entirely different fingerprint.
+          </p>
+          <dl className="kv" style={{ marginTop: 24 }}>
+            <dt>LOOKED UP</dt>
+            <dd style={{ wordBreak: 'break-all', color: 'var(--bad)' }}>
+              {usedHash || input || file?.name || '—'}
+            </dd>
+            <dt>RESULT</dt>
+            <dd style={{ color: 'var(--bad)' }}>records[hash].exists === false</dd>
+          </dl>
+          <div style={{ marginTop: 32, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <button className="btn btn-seal" onClick={reset}>
+              Try another file
+            </button>
+            <a className="btn" href="/#/certify">
+              Certify this file instead <IconArrow size={14} />
+            </a>
           </div>
-        )}
+        </div>
+      )}
 
-      </div>
+      {state === 'ERROR' && (
+        <div style={{ border: '2px solid var(--bad)', padding: 48 }}>
+          <div className="label" style={{ color: 'var(--bad)', marginBottom: 16 }}>
+            ERROR · CHAIN LOOKUP FAILED
+          </div>
+          <p style={{ color: 'var(--ink-dim)', maxWidth: 560 }}>{error}</p>
+          <div style={{ marginTop: 24 }}>
+            <button className="btn btn-seal" onClick={reset}>
+              Try again
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-

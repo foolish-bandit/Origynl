@@ -1,643 +1,766 @@
-
-import React, { useState, useRef, useEffect } from 'react';
-import { Upload, ArrowRight, Download, RefreshCw, FileText, ExternalLink, Radio, AlertTriangle, Award, X, Files, Loader2, Check, Mail, Copy, CheckCheck } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { computeFileHash, computeCompositeHash } from '../services/hashService';
 import { writeHashToChain } from '../services/chainService';
-import { embedWatermark, embedMetadata } from '../services/imageService';
-import { generateCertificate, generateBatchCertificate } from '../services/certificateService';
-import { buildMerkleTree, MerkleProof } from '../services/merkleService';
-import { SensorData } from '../types';
+import { generateCertificate } from '../services/certificateService';
+import { SensorData, ChainRecord } from '../types';
+import { HashStrip } from '../components/HashStrip';
+import { SealGraphic } from '../components/SealGraphic';
+import {
+  IconArrow,
+  IconCheck,
+  IconCopy,
+  IconDownload,
+  IconExt,
+  IconFile,
+  IconUpload,
+  IconX,
+} from '../components/Icons';
 
-interface FileItem {
-  file: File;
-  hash: string;
-  status: 'pending' | 'reading' | 'hashing' | 'done';
+type Stage = 'IDLE' | 'PROCESSING' | 'DONE';
+
+const STEPS: { id: string; label: string; hint: string }[] = [
+  { id: 'READ', label: 'Reading file', hint: 'streaming bytes' },
+  { id: 'HASH', label: 'Computing SHA-256 fingerprint', hint: 'crypto.subtle.digest · 64 bytes' },
+  { id: 'NET', label: 'Connecting to Polygon', hint: 'rpc-amoy.polygon.technology' },
+  { id: 'SIGN', label: 'Signing transaction', hint: 'relayer broadcast' },
+  { id: 'MINE', label: 'Awaiting block confirmation', hint: 'watching next block' },
+  { id: 'CERT', label: 'Issuing certificate', hint: 'generating PDF' },
+];
+
+function shortHash(h?: string | null): string {
+  if (!h) return '—';
+  const clean = h.replace(/^0x/, '');
+  if (clean.length <= 14) return h;
+  return `${h.slice(0, 12)}…${clean.slice(-4)}`;
 }
 
-interface BatchResult {
-  txHash: string;
-  timestamp: number;
-  rootHash: string;
-  proofs: MerkleProof[];
+function polygonScanUrl(txHash?: string): string {
+  if (!txHash) return '#';
+  return `https://amoy.polygonscan.com/tx/${txHash}`;
 }
-
-type ProcessStep = 
-  | 'IDLE'
-  | 'READING_FILE'
-  | 'COMPUTING_FINGERPRINT'
-  | 'CONNECTING_BLOCKCHAIN'
-  | 'WAITING_CONFIRMATION'
-  | 'GENERATING_CERTIFICATE'
-  | 'APPLYING_WATERMARK'
-  | 'COMPLETE';
 
 export const Certify: React.FC = () => {
-  const location = useLocation();
-  
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [status, setStatus] = useState<ProcessStep>('IDLE');
-  const [hash, setHash] = useState<string>('');
-  const [processedImage, setProcessedImage] = useState<string | null>(null);
-  const [certificateUrl, setCertificateUrl] = useState<string | null>(null);
-  const [txId, setTxId] = useState<string>('');
-  const [timestamp, setTimestamp] = useState<number>(0);
-  const [isSimulation, setIsSimulation] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [emailSent, setEmailSent] = useState(false);
-  const [emailInput, setEmailInput] = useState('');
-  const [showEmailInput, setShowEmailInput] = useState(false);
-  const [copied, setCopied] = useState(false);
-  
-  // Batch state
-  const [isBatch, setIsBatch] = useState(false);
-  const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
-  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
-  
-  // Live Capture State
-  const [isLive, setIsLive] = useState(false);
-  const [sensorData, setSensorData] = useState<SensorData | null>(null);
+  const location = useLocation() as {
+    state?: { file?: File; isLiveCapture?: boolean; sensorData?: SensorData };
+  };
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [stage, setStage] = useState<Stage>('IDLE');
+  const [step, setStep] = useState(0);
+  const [hash, setHash] = useState<string>('');
+  const [record, setRecord] = useState<ChainRecord | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [witnessNote, setWitnessNote] = useState('');
+
+  const inputRef = useRef<HTMLInputElement>(null);
+  const incomingState = location.state;
 
   useEffect(() => {
-    if (location.state && location.state.file) {
-      setFiles([{ file: location.state.file, hash: '', status: 'pending' }]);
-      setIsLive(location.state.isLiveCapture || false);
-      setSensorData(location.state.sensorData || null);
+    if (incomingState?.file) {
+      setFiles([incomingState.file]);
     }
-  }, [location]);
+  }, [incomingState]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const newFiles: FileItem[] = Array.from(e.target.files).map(f => ({
-        file: f,
-        hash: '',
-        status: 'pending'
-      }));
-      setFiles(prev => [...prev, ...newFiles]);
-      resetState();
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
+  const onDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const newFiles: FileItem[] = Array.from(e.dataTransfer.files).map(f => ({
-        file: f,
-        hash: '',
-        status: 'pending'
-      }));
-      setFiles(prev => [...prev, ...newFiles]);
-      resetState();
-    }
+    const dropped = Array.from(e.dataTransfer.files);
+    if (dropped.length) setFiles(dropped);
   };
 
-  const resetState = () => {
-    setStatus('IDLE');
-    setProcessedImage(null);
-    setCertificateUrl(null);
+  const onPick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = Array.from(e.target.files ?? []);
+    if (picked.length) setFiles(picked);
+  };
+
+  const reset = () => {
+    setFiles([]);
+    setStage('IDLE');
+    setStep(0);
     setHash('');
-    setTxId('');
-    setTimestamp(0);
-    setIsSimulation(false);
+    setRecord(null);
     setError(null);
-    setBatchResult(null);
-    setEmailSent(false);
-    setShowEmailInput(false);
+    setWitnessNote('');
   };
 
-  const removeFile = (index: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const startProcess = async () => {
-    if (files.length === 0) return;
+  const begin = async () => {
+    if (!files.length) return;
+    const file = files[0];
+    setStage('PROCESSING');
     setError(null);
-
-    const isBatchMode = files.length > 1;
-    setIsBatch(isBatchMode);
+    setStep(1);
 
     try {
-      if (isBatchMode) {
-        await processBatch();
+      let computed: string;
+      if (incomingState?.isLiveCapture && incomingState.sensorData) {
+        computed = await computeCompositeHash(file, incomingState.sensorData);
       } else {
-        await processSingle();
+        computed = await computeFileHash(file);
       }
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'Processing failed. Please try again.');
-      setStatus('IDLE');
+      setHash(computed);
+      setStep(2);
+      setStep(3);
+
+      const written = await writeHashToChain(
+        computed,
+        file.name,
+        incomingState?.isLiveCapture ? 'LIVE_CAPTURE' : 'UPLOAD',
+      );
+      setStep(5);
+      setRecord(written);
+      setStep(6);
+      setStage('DONE');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Inscription failed';
+      setError(msg);
+      setStage('IDLE');
     }
   };
 
-  const processSingle = async () => {
-    const file = files[0].file;
-
-    // Step 1: Reading file
-    setStatus('READING_FILE');
-    setFiles(prev => prev.map((f, i) => i === 0 ? { ...f, status: 'reading' } : f));
-    await new Promise(r => setTimeout(r, 300));
-
-    // Step 2: Create the stamped version first (for images)
-    setStatus('APPLYING_WATERMARK');
-    let finalUrl: string;
-    let finalBlob: Blob;
-    let originalHash: string;
-
-    if (isLive && sensorData) {
-      originalHash = await computeCompositeHash(file, sensorData);
-    } else {
-      originalHash = await computeFileHash(file);
-    }
-
-    if (file.type.startsWith('image/')) {
-      const stampText = isLive ? `LIVE PROOF: ${originalHash}` : originalHash;
-      const watermarkedUrl = await embedWatermark(file, stampText);
-      finalUrl = await embedMetadata(file, watermarkedUrl, originalHash);
-      // Force PNG blob type for deterministic hashing
-      const response = await fetch(finalUrl);
-      const blob = await response.blob();
-      finalBlob = new Blob([blob], { type: 'image/png' });
-    } else if (file.type === 'application/pdf') {
-      finalUrl = await embedMetadata(file, null, originalHash);
-      finalBlob = await fetch(finalUrl).then(r => r.blob());
-    } else {
-      finalUrl = URL.createObjectURL(file);
-      finalBlob = file;
-    }
-
-    // Step 3: Hash the FINAL stamped file - this is what gets verified
-    setStatus('COMPUTING_FINGERPRINT');
-    setFiles(prev => prev.map((f, i) => i === 0 ? { ...f, status: 'hashing' } : f));
-    
-    const stampedFile = new File([finalBlob], file.name, { type: finalBlob.type });
-    const finalHash = await computeFileHash(stampedFile);
-    
-    setHash(finalHash);
-    setFiles(prev => prev.map((f, i) => i === 0 ? { ...f, hash: finalHash, status: 'done' } : f));
-
-    // Step 4: Connecting to blockchain
-    setStatus('CONNECTING_BLOCKCHAIN');
-    await new Promise(r => setTimeout(r, 200));
-
-    // Step 5: Write the STAMPED file's hash to blockchain
-    setStatus('WAITING_CONFIRMATION');
-    const geoTag = sensorData?.gps ? `${sensorData.gps.lat.toFixed(4)},${sensorData.gps.lng.toFixed(4)}` : undefined;
-    
-    const chainRecord = await writeHashToChain(
-      finalHash,  // Hash of the stamped file
-      file.name, 
-      isLive ? 'LIVE_CAPTURE' : 'UPLOAD',
-      geoTag
-    );
-
-    setTxId(chainRecord.txHash || '—');
-    setTimestamp(chainRecord.timestamp || Date.now());
-    setIsSimulation(!!chainRecord.isSimulation);
-
-    // Step 6: Generate PDF certificate
-    setStatus('GENERATING_CERTIFICATE');
-    if (!chainRecord.isSimulation && chainRecord.txHash) {
-      const certBlob = await generateCertificate({
-        fileName: file.name,
-        fileHash: finalHash,
-        txHash: chainRecord.txHash,
-        timestamp: chainRecord.timestamp || Date.now(),
-        blockHeight: chainRecord.blockHeight,
-        sender: chainRecord.sender,
+  const downloadCertificate = async () => {
+    if (!record) return;
+    try {
+      const blob = await generateCertificate({
+        fileName: record.fileName,
+        fileHash: record.hash,
+        txHash: record.txHash ?? '',
+        timestamp: record.timestamp,
+        blockHeight: record.blockHeight,
+        sender: record.sender,
       });
-      setCertificateUrl(URL.createObjectURL(certBlob));
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `origynl-certificate-${record.hash.slice(0, 10)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error(err);
     }
-
-    // Use the already-created stamped file
-    setProcessedImage(finalUrl);
-    setStatus('COMPLETE');
-  };
-
-  const processBatch = async () => {
-    setBatchProgress({ current: 0, total: files.length });
-
-    // Step 1: Hash all files
-    setStatus('COMPUTING_FINGERPRINT');
-    const hashedFiles: { hash: string; fileName: string }[] = [];
-    
-    for (let i = 0; i < files.length; i++) {
-      setFiles(prev => prev.map((f, idx) => 
-        idx === i ? { ...f, status: 'hashing' } : f
-      ));
-      
-      const hash = await computeFileHash(files[i].file);
-      hashedFiles.push({ hash, fileName: files[i].file.name });
-      
-      setFiles(prev => prev.map((f, idx) => 
-        idx === i ? { ...f, hash, status: 'done' } : f
-      ));
-      
-      setBatchProgress({ current: i + 1, total: files.length });
-    }
-
-    // Step 2: Build Merkle tree
-    setStatus('CONNECTING_BLOCKCHAIN');
-    const tree = await buildMerkleTree(hashedFiles);
-    setHash(tree.root);
-
-    // Step 3: Write root to blockchain
-    setStatus('WAITING_CONFIRMATION');
-    const chainRecord = await writeHashToChain(
-      tree.root,
-      `Batch of ${files.length} documents`,
-      'UPLOAD'
-    );
-
-    setTxId(chainRecord.txHash || '—');
-    setTimestamp(chainRecord.timestamp || Date.now());
-    setIsSimulation(!!chainRecord.isSimulation);
-
-    // Step 4: Store result
-    setBatchResult({
-      txHash: chainRecord.txHash || '',
-      timestamp: chainRecord.timestamp || Date.now(),
-      rootHash: tree.root,
-      proofs: tree.proofs
-    });
-
-    setStatus('COMPLETE');
-  };
-
-  const downloadBatchCertificate = async (proof: MerkleProof) => {
-    if (!batchResult) return;
-    
-    const cert = await generateBatchCertificate({
-      fileName: proof.fileName,
-      fileHash: proof.fileHash,
-      txHash: batchResult.txHash,
-      timestamp: batchResult.timestamp,
-      merkleProof: proof
-    });
-    
-    const url = URL.createObjectURL(cert);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `certificate-${proof.fileName.replace(/[^a-z0-9]/gi, '_')}.pdf`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const copyLink = () => {
-    const link = `https://origynl-20.vercel.app/#/verify?hash=${hash}`;
-    navigator.clipboard.writeText(link);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (!record?.txHash) return;
+    const link = `${window.location.origin}/#/verify?hash=${record.txHash}`;
+    navigator.clipboard.writeText(link).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1800);
+      },
+      () => setCopied(false),
+    );
   };
 
-  const getStepMessage = (): string => {
-    switch (status) {
-      case 'READING_FILE': return 'Reading file...';
-      case 'COMPUTING_FINGERPRINT': return isBatch ? `Creating fingerprints (${batchProgress.current}/${batchProgress.total})...` : 'Computing unique fingerprint...';
-      case 'CONNECTING_BLOCKCHAIN': return 'Connecting to Polygon network...';
-      case 'WAITING_CONFIRMATION': return 'Waiting for blockchain confirmation...';
-      case 'GENERATING_CERTIFICATE': return 'Generating certificate...';
-      case 'APPLYING_WATERMARK': return 'Applying digital watermark...';
-      default: return '';
-    }
-  };
-
-  const isPDF = files.length === 1 && files[0]?.file.type === 'application/pdf';
-  const isProcessing = status !== 'IDLE' && status !== 'COMPLETE';
+  const issuedLabel = record?.timestamp
+    ? new Date(record.timestamp).toISOString().replace('T', ' ').slice(0, 19) + 'Z'
+    : '—';
 
   return (
-    <div className="grid lg:grid-cols-2 min-h-screen">
-      
-      {/* Left Panel */}
-      <div className="p-6 md:p-16 border-b lg:border-b-0 lg:border-r border-white/5 flex flex-col justify-center">
-        
-        <div className="mb-8 md:mb-12">
-           <span className="text-orange-600 text-[10px] uppercase tracking-widest font-bold mb-2 block">Document Certification</span>
-           <h1 className="font-serif text-3xl md:text-5xl text-white mb-4">Certify & Seal</h1>
-           <p className="text-neutral-500 font-light max-w-sm text-sm md:text-base">
-             {isLive 
-               ? "Live capture detected. Sensor telemetry will be cryptographically bound to establish authenticity at the moment of capture." 
-               : "Upload one file or many. We'll create an immutable blockchain record proving they existed at this exact moment."
-             }
-           </p>
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 520px',
+        minHeight: 'calc(100vh - 72px - 28px)',
+      }}
+    >
+      {/* LEFT — form */}
+      <div
+        style={{
+          padding: '56px 48px',
+          borderRight: '1px solid var(--rule)',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        <div style={{ marginBottom: 40 }}>
+          <div className="label" style={{ color: 'var(--seal)' }}>§ CERTIFY · ORIGINAL INTAKE</div>
+          <h1
+            className="serif"
+            style={{
+              fontSize: 72,
+              letterSpacing: '-0.035em',
+              lineHeight: 1.02,
+              marginTop: 12,
+            }}
+          >
+            Inscribe<br />an original.
+          </h1>
+          <p style={{ marginTop: 28, color: 'var(--ink-dim)', fontSize: 16, maxWidth: 520 }}>
+            Drop a file. Nothing uploads — only its SHA-256 fingerprint is written to the public ledger. You receive a PDF certificate and a permanent block reference.
+          </p>
         </div>
 
-        {error && (
-          <div className="mb-6 md:mb-8 p-4 bg-red-900/20 border border-red-900/50 flex items-start gap-4">
-            <AlertTriangle className="text-red-500 shrink-0" size={20} />
-            <div className="space-y-1 min-w-0">
-              <h4 className="text-red-500 font-bold text-xs uppercase tracking-widest">Process Error</h4>
-              <p className="text-red-400 text-xs font-mono break-all">{error}</p>
-            </div>
-          </div>
-        )}
-
-        {status === 'IDLE' && (
-          <div className="space-y-6 md:space-y-8">
-            {/* Drop zone */}
-            <div 
-              onClick={() => fileInputRef.current?.click()}
-              onDrop={handleDrop}
+        {stage === 'IDLE' && (
+          <>
+            <div
+              onDrop={onDrop}
               onDragOver={(e) => e.preventDefault()}
-              className={`group border border-dashed hover:border-orange-600 hover:bg-white/5 transition-all duration-500 p-8 flex flex-col items-center justify-center cursor-pointer relative ${isLive ? 'border-orange-600/50 bg-orange-900/5' : 'border-neutral-800'} ${files.length > 0 ? 'aspect-auto' : 'aspect-[4/3] md:aspect-[3/2]'}`}
+              onClick={() => inputRef.current?.click()}
+              role="button"
+              tabIndex={0}
+              style={{
+                border: '1px dashed var(--rule-hi)',
+                padding: 48,
+                textAlign: 'center',
+                cursor: 'pointer',
+                background: files.length ? 'var(--bg-1)' : 'transparent',
+                transition: 'all .2s ease',
+              }}
             >
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                className="hidden" 
-                onChange={handleFileChange}
-                accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.txt"
-                multiple
-              />
-              
+              <input ref={inputRef} type="file" hidden onChange={onPick} />
               {files.length === 0 ? (
-                <div className="text-center space-y-4">
-                  {isLive && (
-                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-orange-600/20 border border-orange-600/50 rounded-full mb-4">
-                      <Radio size={12} className="text-orange-500 animate-pulse" />
-                      <span className="text-[10px] text-orange-400 font-bold uppercase tracking-widest">Live Capture Data</span>
-                    </div>
-                  )}
-                  <div className="w-14 h-14 md:w-16 md:h-16 rounded-full border border-neutral-800 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform duration-500">
-                    <Upload className="w-5 h-5 md:w-6 md:h-6 text-neutral-500 group-hover:text-orange-600 transition-colors" />
+                <div>
+                  <div
+                    style={{
+                      display: 'inline-flex',
+                      width: 64,
+                      height: 64,
+                      borderRadius: '50%',
+                      border: '1px solid var(--rule)',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: 'var(--ink-dim)',
+                    }}
+                  >
+                    <IconUpload size={22} />
                   </div>
-                  <div>
-                    <p className="text-neutral-400 text-sm">Drop files here or click to browse</p>
-                    <p className="text-neutral-600 text-xs mt-1">One file or many — we'll handle it</p>
+                  <div style={{ marginTop: 20, fontSize: 16, color: 'var(--ink)' }}>
+                    Drop a file, or browse
+                  </div>
+                  <div className="label-sm" style={{ marginTop: 8 }}>
+                    PDF · DOCX · JPG · PNG · ZIP · up to 100 MB
                   </div>
                 </div>
               ) : (
-                <div className="w-full space-y-2">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-bold text-white flex items-center gap-2">
-                      <Files size={16} className="text-orange-600" />
-                      {files.length} file{files.length > 1 ? 's' : ''} ready
-                    </span>
-                    <span className="text-xs text-neutral-500 hover:text-orange-600 cursor-pointer" onClick={(e) => { e.stopPropagation(); setFiles([]); }}>
-                      Clear all
+                <div style={{ textAlign: 'left' }}>
+                  <div
+                    className="label"
+                    style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}
+                  >
+                    <span>{files.length} file{files.length > 1 ? 's' : ''} selected</span>
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFiles([]);
+                      }}
+                      style={{ color: 'var(--seal)', cursor: 'pointer' }}
+                    >
+                      CLEAR
                     </span>
                   </div>
-                  <div className="space-y-2 max-h-48 overflow-y-auto">
-                    {files.map((f, i) => (
-                      <div key={i} className="flex items-center gap-3 p-3 bg-neutral-900/50 border border-white/5" onClick={(e) => e.stopPropagation()}>
-                        <FileText size={16} className="text-neutral-600 shrink-0" />
-                        <span className="text-sm text-neutral-300 truncate flex-1">{f.file.name}</span>
-                        <span className="text-xs text-neutral-600">{(f.file.size / 1024).toFixed(0)} KB</span>
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); removeFile(i); }}
-                          className="text-neutral-600 hover:text-red-500 transition-colors"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-xs text-neutral-600 text-center pt-2">Click to add more files</p>
+                  {files.map((f, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'auto 1fr auto auto',
+                        gap: 12,
+                        alignItems: 'center',
+                        padding: '12px 0',
+                        borderTop: '1px solid var(--rule)',
+                      }}
+                    >
+                      <IconFile size={14} />
+                      <span style={{ fontSize: 13 }}>{f.name}</span>
+                      <span className="mono" style={{ fontSize: 11, color: 'var(--ink-mute)' }}>
+                        {(f.size / 1024).toFixed(0)} KB
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setFiles(files.filter((_, j) => j !== i));
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: 'var(--ink-mute)',
+                          cursor: 'pointer',
+                        }}
+                        aria-label="Remove file"
+                      >
+                        <IconX size={12} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
 
-            {files.length > 1 && (
-              <div className="p-3 bg-neutral-900/50 border border-white/5 text-xs text-neutral-400">
-                <span className="text-orange-600 font-bold">Batch mode:</span> All {files.length} files will be certified with a single blockchain transaction. Each gets its own certificate.
+            {files.length > 0 && (
+              <div style={{ marginTop: 20 }}>
+                <div className="label" style={{ marginBottom: 8 }}>Witness statement (optional)</div>
+                <textarea
+                  value={witnessNote}
+                  onChange={(e) => setWitnessNote(e.target.value.slice(0, 280))}
+                  placeholder="Up to 280 chars. Stored as metadata, never on-chain."
+                  rows={2}
+                  style={{
+                    width: '100%',
+                    background: 'var(--bg-1)',
+                    border: '1px solid var(--rule)',
+                    color: 'var(--ink)',
+                    padding: 12,
+                    fontFamily: 'var(--mono)',
+                    fontSize: 12,
+                    resize: 'vertical',
+                  }}
+                />
+                <div
+                  className="label-sm"
+                  style={{ textAlign: 'right', marginTop: 4 }}
+                >
+                  {witnessNote.length} / 280
+                </div>
               </div>
             )}
 
-            <button 
-               onClick={startProcess}
-               disabled={files.length === 0}
-               className="w-full py-5 md:py-6 bg-white hover:bg-neutral-200 disabled:bg-neutral-900 disabled:text-neutral-700 disabled:cursor-not-allowed text-black transition-all duration-300 uppercase tracking-widest text-xs font-bold flex justify-between px-6 md:px-8"
-             >
-               <span>Certify {files.length > 1 ? `${files.length} Files` : (isLive ? 'Live Capture' : 'Document')}</span>
-               <ArrowRight size={16} />
-             </button>
+            {error && (
+              <div
+                style={{
+                  marginTop: 20,
+                  padding: 14,
+                  background: 'color-mix(in oklch, var(--bad) 12%, var(--bg-1))',
+                  border: '1px solid var(--bad)',
+                  fontSize: 12,
+                  color: 'var(--bad)',
+                }}
+              >
+                <span className="label" style={{ color: 'var(--bad)', marginRight: 8 }}>ERROR</span>
+                {error}
+              </div>
+            )}
+
+            <div
+              style={{
+                marginTop: 32,
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 16,
+              }}
+            >
+              <div style={{ padding: 16, border: '1px solid var(--rule)' }}>
+                <div className="label-sm">Privacy</div>
+                <div style={{ fontSize: 13, marginTop: 6 }}>File never leaves this device.</div>
+              </div>
+              <div style={{ padding: 16, border: '1px solid var(--rule)' }}>
+                <div className="label-sm">Cost</div>
+                <div style={{ fontSize: 13, marginTop: 6 }}>~0.002 POL · we pay gas.</div>
+              </div>
+            </div>
+
+            <button
+              onClick={begin}
+              disabled={!files.length}
+              className="btn btn-seal"
+              style={{
+                marginTop: 32,
+                padding: '18px 24px',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span>
+                Inscribe {files.length > 1 ? `${files.length} files` : 'document'} to ledger
+              </span>
+              <IconArrow size={14} />
+            </button>
+          </>
+        )}
+
+        {stage === 'PROCESSING' && (
+          <div>
+            <div className="label" style={{ color: 'var(--seal)', marginBottom: 16 }}>
+              PROCESSING · DO NOT CLOSE
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {STEPS.map((s, i) => {
+                const done = i < step;
+                const active = i === step - 1 || (i === step && step === STEPS.length);
+                return (
+                  <div
+                    key={s.id}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'auto 1fr auto',
+                      gap: 16,
+                      alignItems: 'center',
+                      padding: '18px 0',
+                      borderBottom: '1px solid var(--rule)',
+                      opacity: i >= step && !active ? 0.4 : 1,
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: '50%',
+                        border: '1px solid var(--rule)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        background: done ? 'var(--ok)' : 'transparent',
+                      }}
+                    >
+                      {done ? (
+                        <IconCheck size={12} stroke={2.5} />
+                      ) : active ? (
+                        <span
+                          className="pulsedot"
+                          style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--seal)' }}
+                        />
+                      ) : (
+                        <span className="mono" style={{ fontSize: 10, color: 'var(--ink-faint)' }}>
+                          {i + 1}
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 14,
+                          color: active ? 'var(--ink)' : 'var(--ink-dim)',
+                        }}
+                      >
+                        {s.label}
+                      </div>
+                      {active && (
+                        <div
+                          className="mono"
+                          style={{ fontSize: 10, color: 'var(--ink-mute)', marginTop: 4 }}
+                        >
+                          {s.hint}
+                        </div>
+                      )}
+                    </div>
+                    <span className="label-sm">{done ? 'OK' : active ? '…' : ''}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div
+              style={{
+                marginTop: 32,
+                height: 2,
+                background: 'var(--rule)',
+                position: 'relative',
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  inset: 0,
+                  width: `${(step / STEPS.length) * 100}%`,
+                  background: 'var(--seal)',
+                  transition: 'width .4s ease',
+                }}
+              />
+            </div>
           </div>
         )}
 
-        {isProcessing && (
-           <div className="space-y-8">
-             <div className="space-y-4">
-               <div className="flex items-center gap-4">
-                 <Loader2 className="w-8 h-8 text-orange-600 animate-spin" />
-                 <div>
-                   <h3 className="font-serif text-2xl text-white">{getStepMessage()}</h3>
-                   <p className="text-neutral-500 text-sm mt-1">Please don't close this page</p>
-                 </div>
-               </div>
-               <div className="h-1 w-full bg-neutral-900 rounded-full overflow-hidden">
-                 <div className="h-full bg-orange-600 animate-pulse" style={{ width: '60%' }}></div>
-               </div>
-             </div>
-
-             {/* File status list during processing */}
-             <div className="space-y-2 max-h-48 overflow-y-auto">
-               {files.map((f, i) => (
-                 <div key={i} className="flex items-center gap-3 p-2 text-sm">
-                   {f.status === 'done' ? (
-                     <Check size={14} className="text-green-500" />
-                   ) : f.status === 'hashing' || f.status === 'reading' ? (
-                     <Loader2 size={14} className="text-orange-500 animate-spin" />
-                   ) : (
-                     <div className="w-3.5 h-3.5 rounded-full border border-neutral-700" />
-                   )}
-                   <span className={f.status === 'done' ? 'text-neutral-400' : 'text-neutral-600'}>
-                     {f.file.name}
-                   </span>
-                   {f.hash && (
-                     <span className="text-neutral-700 font-mono text-[10px] ml-auto">
-                       {f.hash.slice(0, 8)}...
-                     </span>
-                   )}
-                 </div>
-               ))}
-             </div>
-           </div>
-        )}
-
-        {status === 'COMPLETE' && (
-           <div className="space-y-8">
-             <div className="p-6 md:p-8 border border-white/10 bg-white/5 relative overflow-hidden">
-                {isSimulation && (
-                  <div className="absolute top-0 right-0 p-4">
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-yellow-500 border border-yellow-500/50 px-2 py-1 rounded bg-yellow-500/10">Demo Mode</span>
-                  </div>
-                )}
-                
-                <div className="flex items-start gap-4 mb-4">
-                  <div className="w-12 h-12 rounded-full bg-green-900/30 flex items-center justify-center shrink-0">
-                    <Check className="text-green-500" size={24} />
-                  </div>
-                  <div>
-                    <h3 className="font-serif text-2xl md:text-3xl text-white">Certified.</h3>
-                    <p className="text-neutral-400 text-sm mt-1">
-                      {isBatch 
-                        ? `${files.length} documents are now permanently recorded on the blockchain.`
-                        : isSimulation 
-                          ? "Proof generated in local simulation mode. This record exists only in this browser."
-                          : "This document is now permanently recorded on the Polygon blockchain."
-                      }
-                    </p>
-                  </div>
-                </div>
-                
-                {/* Single file actions */}
-                {!isBatch && (
-                  <div className="flex flex-col gap-3">
-                    {certificateUrl && (
-                      <a 
-                        href={certificateUrl} 
-                        download={`origynl-certificate-${files[0]?.file.name || 'document'}.pdf`}
-                        className="flex items-center justify-between w-full py-4 px-6 bg-orange-600 hover:bg-orange-700 text-white transition-colors text-xs uppercase tracking-widest font-bold"
-                      >
-                        <span className="flex items-center gap-2">
-                          <Award size={16} />
-                          Download Certificate
-                        </span>
-                        <Download size={14} /> 
-                      </a>
-                    )}
-
-                    <a 
-                      href={processedImage || '#'} 
-                      download={`origynl-stamped-${files[0]?.file.name || 'document'}.${isPDF ? 'pdf' : 'png'}`}
-                      className={`flex items-center justify-between w-full py-4 px-6 transition-colors text-xs uppercase tracking-widest font-bold ${certificateUrl ? 'border border-white/10 hover:bg-white/5 text-neutral-400' : 'bg-orange-600 hover:bg-orange-700 text-white'}`}
-                    >
-                      <span>Download Stamped File</span>
-                      <Download size={14} /> 
-                    </a>
-
-                    <button 
-                      onClick={copyLink}
-                      className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest"
-                    >
-                      <span>Copy Verification Link</span>
-                      {copied ? <CheckCheck size={14} className="text-green-500" /> : <Copy size={14} />}
-                    </button>
-
-                    {!isSimulation && txId && (
-                      <a 
-                        href={`https://amoy.polygonscan.com/tx/${txId}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest"
-                      >
-                        <span>View on Blockchain</span>
-                        <ExternalLink size={14} />
-                      </a>
-                    )}
-                  </div>
-                )}
-
-                {/* Batch file downloads */}
-                {isBatch && batchResult && (
-                  <div className="space-y-3">
-                    <div className="p-3 bg-neutral-900/50 border border-white/5">
-                      <span className="text-xs text-neutral-600 uppercase tracking-widest">Transaction</span>
-                      <a 
-                        href={`https://amoy.polygonscan.com/tx/${batchResult.txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block text-sm text-orange-600 hover:text-orange-500 font-mono truncate"
-                      >
-                        {batchResult.txHash}
-                      </a>
-                    </div>
-
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {batchResult.proofs.map((proof, i) => (
-                        <div key={i} className="flex items-center gap-3 p-3 bg-neutral-900/50 border border-white/5">
-                          <FileText size={16} className="text-orange-600 shrink-0" />
-                          <span className="text-sm text-neutral-300 truncate flex-1">{proof.fileName}</span>
-                          <button
-                            onClick={() => downloadBatchCertificate(proof)}
-                            className="text-xs text-orange-600 hover:text-orange-500 uppercase tracking-widest font-bold flex items-center gap-2"
-                          >
-                            <Download size={12} />
-                            PDF
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <button 
-                 onClick={() => { setStatus('IDLE'); setFiles([]); resetState(); }}
-                 className="flex items-center justify-between w-full py-4 px-6 border border-white/10 hover:bg-white/5 text-neutral-400 transition-colors text-xs uppercase tracking-widest mt-4"
+        {stage === 'DONE' && record && (
+          <div>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 16,
+                paddingBottom: 20,
+                borderBottom: '1px solid var(--rule)',
+              }}
+            >
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: '50%',
+                  background: 'var(--ok)',
+                  display: 'grid',
+                  placeItems: 'center',
+                  color: '#002d10',
+                }}
+              >
+                <IconCheck size={22} stroke={2.5} />
+              </div>
+              <div>
+                <div className="label" style={{ color: 'var(--ok)' }}>CERTIFIED</div>
+                <div
+                  className="serif"
+                  style={{ fontSize: 32, letterSpacing: '-0.02em', marginTop: 4 }}
                 >
-                  <span>Certify More Documents</span>
-                  <RefreshCw size={14} />
-                </button>
-             </div>
-           </div>
+                  Inscribed. Permanent.
+                </div>
+              </div>
+            </div>
+
+            <dl className="kv" style={{ marginTop: 24 }}>
+              <dt>FILE</dt><dd>{record.fileName}</dd>
+              <dt>SHA-256</dt><dd style={{ color: 'var(--ink-dim)' }}>{record.hash}</dd>
+              <dt>TX</dt>
+              <dd style={{ color: 'var(--seal)' }}>
+                {shortHash(record.txHash)}{' '}
+                {record.txHash && (
+                  <IconExt size={10} style={{ verticalAlign: 'middle', marginLeft: 4 }} />
+                )}
+              </dd>
+              <dt>BLOCK</dt><dd>#{record.blockHeight?.toLocaleString() ?? '—'}</dd>
+              <dt>ISSUED</dt><dd>{issuedLabel}</dd>
+              <dt>SIGNER</dt><dd>{record.sender ? shortHash(record.sender) : '—'}</dd>
+            </dl>
+
+            <div
+              style={{
+                marginTop: 32,
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 12,
+              }}
+            >
+              <button
+                className="btn btn-seal"
+                style={{ justifyContent: 'space-between' }}
+                onClick={downloadCertificate}
+              >
+                <span>Download certificate</span>
+                <IconDownload size={14} />
+              </button>
+              <a
+                className="btn"
+                style={{ justifyContent: 'space-between' }}
+                href={polygonScanUrl(record.txHash)}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <span>View on PolygonScan</span>
+                <IconExt size={14} />
+              </a>
+              <button
+                className="btn"
+                style={{ justifyContent: 'space-between' }}
+                onClick={copyLink}
+              >
+                <span>{copied ? 'Copied' : 'Copy verification link'}</span>
+                <IconCopy size={14} />
+              </button>
+              <button
+                className="btn btn-ghost"
+                style={{ justifyContent: 'space-between' }}
+                onClick={reset}
+              >
+                <span>Certify another</span>
+                <IconArrow size={14} />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Right Panel: Output */}
-      <div className="bg-neutral-900/30 p-4 md:p-16 flex flex-col relative overflow-hidden min-h-[50vh] lg:min-h-0">
-        <div className="relative z-10 flex-1 flex items-center justify-center border border-white/5 bg-neutral-950/50 backdrop-blur-sm p-4 shadow-2xl">
-           {status === 'COMPLETE' && !isBatch && processedImage ? (
-             isPDF ? (
-               <div className="text-center space-y-4">
-                 <FileText className="w-16 h-16 text-orange-600 mx-auto" />
-                 <p className="text-white font-serif text-xl">PDF Stamped</p>
-                 <p className="text-neutral-500 text-xs">Download to view</p>
-               </div>
-             ) : (
-               <img src={processedImage} alt="Preview" className="max-w-full max-h-[40vh] md:max-h-[60vh] object-contain shadow-2xl border border-white/5" />
-             )
-           ) : status === 'COMPLETE' && isBatch ? (
-             <div className="text-center space-y-4">
-               <div className="w-20 h-20 rounded-full bg-green-900/20 flex items-center justify-center mx-auto">
-                 <Files className="w-10 h-10 text-green-500" />
-               </div>
-               <p className="text-white font-serif text-xl">{files.length} Documents Certified</p>
-               <p className="text-neutral-500 text-xs">Download individual certificates from the left panel</p>
-             </div>
-           ) : isProcessing ? (
-             <div className="text-center space-y-4">
-               <Loader2 className="w-12 h-12 text-orange-600 mx-auto animate-spin" />
-               <p className="text-neutral-500 text-sm">{getStepMessage()}</p>
-             </div>
-           ) : (
-             <div className="text-center text-neutral-700 space-y-2">
-               <span className="font-serif text-4xl text-neutral-800 opacity-50">O.</span>
-               <p className="font-mono text-[10px] uppercase tracking-widest pt-4">Waiting for Input</p>
-             </div>
-           )}
+      {/* RIGHT — preview / seal */}
+      <aside
+        style={{
+          background: 'var(--bg-1)',
+          padding: 40,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 24,
+        }}
+      >
+        <div className="label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>Live Preview</span>
+          <span
+            style={{
+              color:
+                stage === 'DONE'
+                  ? 'var(--ok)'
+                  : stage === 'PROCESSING'
+                  ? 'var(--seal)'
+                  : 'var(--ink-mute)',
+            }}
+          >
+            {stage === 'DONE' ? 'SIGNED' : stage === 'PROCESSING' ? 'PROCESSING' : 'AWAITING'}
+          </span>
+        </div>
+        <div
+          style={{
+            flex: 1,
+            border: '1px solid var(--rule)',
+            background: 'var(--bg)',
+            padding: 32,
+            display: 'flex',
+            flexDirection: 'column',
+            position: 'relative',
+            minHeight: 520,
+          }}
+        >
+          {stage === 'IDLE' && (
+            <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--ink-faint)' }}>
+              <div style={{ color: 'var(--ink-dim)' }}>
+                <SealGraphic size={220} />
+              </div>
+              <div className="label-sm" style={{ marginTop: 20 }}>
+                A certificate will appear here
+              </div>
+            </div>
+          )}
+          {stage === 'PROCESSING' && (
+            <div style={{ margin: 'auto', textAlign: 'center' }}>
+              <div style={{ position: 'relative', width: 220, height: 220, margin: '0 auto' }}>
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    border: '1px dashed var(--rule)',
+                    borderRadius: '50%',
+                    animation: 'sealspin 20s linear infinite',
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 20,
+                    border: '1px solid var(--seal)',
+                    borderRadius: '50%',
+                    borderRightColor: 'transparent',
+                    animation: 'sealspin 2s linear infinite',
+                  }}
+                />
+                <div
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'grid',
+                    placeItems: 'center',
+                  }}
+                >
+                  <span
+                    className="mono"
+                    style={{ fontSize: 10, letterSpacing: '0.2em', color: 'var(--seal)' }}
+                  >
+                    INSCRIBING
+                  </span>
+                </div>
+              </div>
+              <div
+                className="mono"
+                style={{
+                  marginTop: 28,
+                  fontSize: 10,
+                  color: 'var(--ink-mute)',
+                  letterSpacing: '0.15em',
+                }}
+              >
+                STEP {Math.max(1, step)} / {STEPS.length}
+              </div>
+              {hash && (
+                <div style={{ marginTop: 20, maxWidth: 280, margin: '20px auto 0' }}>
+                  <HashStrip hash={hash} cells={32} />
+                </div>
+              )}
+            </div>
+          )}
+          {stage === 'DONE' && record && (
+            <MiniCertificate
+              file={record.fileName}
+              hash={record.hash}
+              tx={record.txHash ?? ''}
+              block={record.blockHeight ?? 0}
+              issuedAt={issuedLabel}
+            />
+          )}
         </div>
 
-        <div className="mt-4 md:mt-8 pt-4 md:pt-8 border-t border-white/5 font-mono text-[10px] text-neutral-500 grid grid-cols-1 md:grid-cols-2 gap-4">
-           <div className="min-w-0">
-             <span className="block text-neutral-600 uppercase mb-1 font-bold">{isBatch ? 'Batch Root Hash' : 'SHA-256 Checksum'}</span>
-             <span className="block text-neutral-400 break-all text-[9px] md:text-[10px]">{hash || "—"}</span>
-           </div>
-           <div className="min-w-0">
-             <span className="block text-neutral-600 uppercase mb-1 font-bold">Ledger Ref</span>
-             {txId ? (
-               isSimulation ? (
-                 <div className="flex flex-col gap-1">
-                   <span className="text-yellow-500 font-bold">SIMULATED ID (LOCAL)</span>
-                   <span className="block text-neutral-500 break-all opacity-50 text-[9px]">{txId}</span>
-                 </div>
-               ) : (
-                 <a 
-                   href={`https://amoy.polygonscan.com/tx/${txId}`} 
-                   target="_blank" 
-                   rel="noopener noreferrer"
-                   className="flex items-center gap-2 text-orange-600 hover:text-orange-500 transition-colors break-all group"
-                 >
-                   <span className="line-clamp-1 text-[9px] md:text-[10px]">{txId}</span>
-                   <ExternalLink size={10} className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />
-                 </a>
-               )
-             ) : (
-               <span className="block text-neutral-400">—</span>
-             )}
-           </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 0,
+            border: '1px solid var(--rule)',
+          }}
+        >
+          <div style={{ padding: 14, borderRight: '1px solid var(--rule)' }}>
+            <div className="label-sm">Ledger Ref</div>
+            <div
+              className="mono"
+              style={{
+                fontSize: 11,
+                marginTop: 4,
+                color: record?.txHash ? 'var(--seal)' : 'var(--ink-faint)',
+              }}
+            >
+              {record?.txHash ? record.txHash.slice(0, 14) + '…' : '—'}
+            </div>
+          </div>
+          <div style={{ padding: 14 }}>
+            <div className="label-sm">Block</div>
+            <div
+              className="mono"
+              style={{
+                fontSize: 11,
+                marginTop: 4,
+                color: record?.blockHeight ? 'var(--ink)' : 'var(--ink-faint)',
+              }}
+            >
+              {record?.blockHeight ? `#${record.blockHeight.toLocaleString()}` : '—'}
+            </div>
+          </div>
         </div>
-      </div>
+      </aside>
     </div>
   );
 };
+
+type MiniCertProps = {
+  file?: string;
+  hash: string;
+  tx: string;
+  block: number;
+  issuedAt: string;
+};
+
+const MiniCertificate: React.FC<MiniCertProps> = ({ file, hash, tx, block, issuedAt }) => (
+  <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+      <div>
+        <div className="label-sm">Certificate of Origin</div>
+        <div className="serif" style={{ fontSize: 28, letterSpacing: '-0.02em', marginTop: 4 }}>
+          Origynl.
+        </div>
+      </div>
+      <div style={{ color: 'var(--ink-dim)' }}>
+        <SealGraphic size={68} />
+      </div>
+    </div>
+    <div style={{ marginTop: 20, fontSize: 11, color: 'var(--ink-dim)', lineHeight: 1.6 }}>
+      Be it known that the file identified below was inscribed upon the Polygon public ledger and bears its timestamp as witness thereto.
+    </div>
+    <dl className="kv" style={{ marginTop: 20 }}>
+      <dt>FILE</dt><dd>{file || '—'}</dd>
+      <dt>SHA-256</dt><dd style={{ wordBreak: 'break-all', fontSize: 10 }}>{hash}</dd>
+      <dt>TX</dt>
+      <dd style={{ color: 'var(--seal)', fontSize: 10, wordBreak: 'break-all' }}>{tx}</dd>
+      <dt>BLOCK</dt><dd>#{block.toLocaleString()}</dd>
+      <dt>ISSUED</dt><dd>{issuedAt}</dd>
+    </dl>
+    <div style={{ flex: 1 }} />
+    <div
+      style={{
+        borderTop: '1px solid var(--rule)',
+        paddingTop: 14,
+        display: 'flex',
+        justifyContent: 'space-between',
+        color: 'var(--ink-mute)',
+      }}
+    >
+      <div className="mono" style={{ fontSize: 9, letterSpacing: '0.15em' }}>
+        <div>VERIFY AT</div>
+        <div style={{ color: 'var(--seal)' }}>origynl.app/v/{tx.slice(2, 10)}</div>
+      </div>
+      <div
+        className="mono"
+        style={{ fontSize: 9, letterSpacing: '0.15em', textAlign: 'right' }}
+      >
+        <div>SEAL №</div>
+        <div style={{ color: 'var(--ink)' }}>{(block % 100000).toString().padStart(5, '0')}</div>
+      </div>
+    </div>
+  </div>
+);
