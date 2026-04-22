@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./images/logo.png" alt="Origynl banner" width="600" />
+  <img src="images/logo.png" style="max-width:100%; height:auto;" />
 </p>
 
 # Origynl
