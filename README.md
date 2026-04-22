@@ -1,4 +1,6 @@
-![Alt text](images/logo.png)
+<p align="center">
+  <img src="images/your-image.png" style="max-width:100%; height:auto;" />
+</p>
 
 # Origynl
 
