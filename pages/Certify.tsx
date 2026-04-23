@@ -4,6 +4,7 @@ import { computeFileHash, computeCompositeHash } from '../services/hashService';
 import { writeHashToChain } from '../services/chainService';
 import { generateCertificate } from '../services/certificateService';
 import { buildMerkleTree, type MerkleProof } from '../services/merkleService';
+import { stampHashViaOts, decodeBase64ToBytes, type OtsStamp } from '../services/otsService';
 import { SensorData, ChainRecord } from '../types';
 import { HashStrip } from '../components/HashStrip';
 import { SealGraphic } from '../components/SealGraphic';
@@ -55,6 +56,8 @@ export const Certify: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [witnessNote, setWitnessNote] = useState('');
   const [batchProofs, setBatchProofs] = useState<MerkleProof[] | null>(null);
+  const [otsStamp, setOtsStamp] = useState<OtsStamp | null>(null);
+  const [otsError, setOtsError] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const incomingState = location.state;
@@ -85,6 +88,20 @@ export const Certify: React.FC = () => {
     setError(null);
     setWitnessNote('');
     setBatchProofs(null);
+    setOtsStamp(null);
+    setOtsError(null);
+  };
+
+  const runOtsInBackground = (hashToStamp: string) => {
+    setOtsStamp(null);
+    setOtsError(null);
+    stampHashViaOts(hashToStamp)
+      .then((s) => setOtsStamp(s))
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : 'OTS stamping failed';
+        console.warn('[Certify] OTS stamping failed (non-fatal):', msg);
+        setOtsError(msg);
+      });
   };
 
   const isBatch = files.length > 1;
@@ -109,6 +126,8 @@ export const Certify: React.FC = () => {
         setStep(2);
         setStep(3);
 
+        runOtsInBackground(computed);
+
         const written = await writeHashToChain(
           computed,
           file.name,
@@ -132,6 +151,8 @@ export const Certify: React.FC = () => {
       setHash(tree.root);
       setBatchProofs(tree.proofs);
       setStep(3);
+
+      runOtsInBackground(tree.root);
 
       const written = await writeHashToChain(
         tree.root,
@@ -169,6 +190,18 @@ export const Certify: React.FC = () => {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const downloadOts = () => {
+    if (!otsStamp) return;
+    const bytes = decodeBase64ToBytes(otsStamp.otsBase64);
+    const blob = new Blob([bytes], { type: 'application/vnd.ots' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `origynl-${otsStamp.hash.slice(0, 10)}.ots`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const downloadBatchProofs = () => {
@@ -615,6 +648,14 @@ export const Certify: React.FC = () => {
               <dt>BLOCK</dt><dd>#{record.blockHeight?.toLocaleString() ?? '—'}</dd>
               <dt>ISSUED</dt><dd>{issuedLabel}</dd>
               <dt>SIGNER</dt><dd>{record.sender ? shortHash(record.sender) : '—'}</dd>
+              <dt>BITCOIN ANCHOR</dt>
+              <dd style={{ color: otsStamp ? 'var(--seal)' : 'var(--ink-mute)' }}>
+                {otsStamp
+                  ? `pending upgrade · OTS stamped (${otsStamp.otsBase64.length} B₆₄)`
+                  : otsError
+                  ? `unavailable — ${otsError.slice(0, 80)}`
+                  : 'stamping…'}
+              </dd>
             </dl>
 
             {batchProofs && (
@@ -679,6 +720,17 @@ export const Certify: React.FC = () => {
                   onClick={downloadBatchProofs}
                 >
                   <span>Download proof bundle ({batchProofs.length})</span>
+                  <IconDownload size={14} />
+                </button>
+              )}
+              {otsStamp && (
+                <button
+                  className="btn"
+                  style={{ justifyContent: 'space-between' }}
+                  onClick={downloadOts}
+                  title="OpenTimestamps proof — Bitcoin-anchored second witness"
+                >
+                  <span>Download .ots (Bitcoin anchor)</span>
                   <IconDownload size={14} />
                 </button>
               )}
