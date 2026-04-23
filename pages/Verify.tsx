@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { computeFileHash } from '../services/hashService';
-import { findRecordByHash } from '../services/chainService';
+import { findRecordByHashDetailed } from '../services/chainService';
 import { ChainRecord } from '../types';
 import { HashStrip } from '../components/HashStrip';
 import { SealGraphic } from '../components/SealGraphic';
@@ -45,22 +45,28 @@ export const Verify: React.FC = () => {
     setUsedHash('');
   };
 
+  const applyResult = (result: Awaited<ReturnType<typeof findRecordByHashDetailed>>) => {
+    if (result.status === 'found') {
+      setRecord(result.record);
+      setState('AUTHENTIC');
+    } else if (result.status === 'not_found') {
+      setRecord(null);
+      setState('NOT_FOUND');
+    } else {
+      setRecord(null);
+      setError(result.error);
+      setState('ERROR');
+    }
+  };
+
   const runLookup = async (hashOrTx: string) => {
     setState('SEARCHING');
     setError(null);
     setUsedHash(hashOrTx);
     try {
-      const found = await findRecordByHash(hashOrTx.trim());
-      if (found) {
-        setRecord(found);
-        setState('AUTHENTIC');
-      } else {
-        setRecord(null);
-        setState('NOT_FOUND');
-      }
+      applyResult(await findRecordByHashDetailed(hashOrTx));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Lookup failed';
-      setError(msg);
+      setError(err instanceof Error ? err.message : 'Lookup failed');
       setState('ERROR');
     }
   };
@@ -72,17 +78,9 @@ export const Verify: React.FC = () => {
     try {
       const hash = await computeFileHash(f);
       setUsedHash(hash);
-      const found = await findRecordByHash(hash);
-      if (found) {
-        setRecord(found);
-        setState('AUTHENTIC');
-      } else {
-        setRecord(null);
-        setState('NOT_FOUND');
-      }
+      applyResult(await findRecordByHashDetailed(hash));
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Lookup failed';
-      setError(msg);
+      setError(err instanceof Error ? err.message : 'Lookup failed');
       setState('ERROR');
     }
   };

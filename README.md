@@ -32,7 +32,7 @@ AI-generated content is getting indistinguishable from the real thing. Origynl p
 | Routing | React Router v7 |
 | Build | Vite 6 |
 | Blockchain | Polygon Amoy testnet via [viem](https://viem.sh) |
-| Smart Contract | Solidity (`OrigynlLedger.sol`) |
+| Smart Contract | Solidity (`contracts/src/OrigynlLedgerV2.sol`) |
 | PDF Handling | pdf-lib |
 | Camera/EXIF | react-webcam, piexifjs |
 | Backend | Vercel Serverless Functions |
@@ -86,7 +86,7 @@ npm run dev
 
 ## Project Structure
 ├── App.tsx              # App shell + routing
-├── OrigynlLedger.sol    # Solidity smart contract
+├── contracts/           # Solidity source (v2) + Hardhat
 ├── api/                 # Vercel serverless functions (blockchain writes)
 ├── components/          # React UI components
 ├── pages/               # Route-level page components
@@ -98,11 +98,21 @@ npm run dev
 ## Roadmap
 
 - [ ] Polygon mainnet deployment
-- [ ] Batch certification (multiple files, single transaction)
-- [ ] AI detection scoring alongside blockchain proof
-- [ ] Public verification page (shareable proof URLs)
+- [ ] Deploy `OrigynlLedgerV2` (bytes32 storage, Merkle batch, EIP-712 sponsor relay) — contract source in `contracts/src/`
+- [ ] Batch certification UI wired to `services/merkleService`
+- [ ] WalletConnect self-custody mode (`wagmi` + user-signed EIP-712)
+- [ ] PAdES-signed certificate PDFs (`@signpdf/signpdf` + pdf-lib)
+- [ ] C2PA Content Credentials for captured images (`c2pa-js`)
+- [ ] OpenTimestamps dual anchor (free Bitcoin timestamp proof alongside Polygon)
+- [ ] Perceptual hash + steganographic watermark for robustness under edits
+- [ ] Public shareable `/proof/:id` verification page
 - [ ] IPFS pinning for certified file backup
+- [ ] PWA / offline capture + queued certify
 - [ ] Mobile-native capture (Capacitor/native camera APIs)
+
+Explicit non-goal: Origynl does not and will not use AI for authenticity
+scoring. Provenance is established cryptographically (hash + chain +
+PAdES/C2PA signatures), not inferred.
 
 ## License
 
