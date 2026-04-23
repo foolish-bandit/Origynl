@@ -479,8 +479,8 @@ export const generateBatchCertificate = async (data: BatchCertificateData): Prom
     x: 60, y: height - 635, size: 8, font: helveticaBold, color: gray,
   });
   
-  const proofSummary = data.merkleProof.proofPath.length > 0 
-    ? data.merkleProof.proofPath.map((p, i) => `${i + 1}:${p.hash.slice(0, 8)}...`).join(' → ')
+  const proofSummary = data.merkleProof.proofPath.length > 0
+    ? data.merkleProof.proofPath.map((h, i) => `${i + 1}:${h.slice(0, 8)}...`).join(' → ')
     : 'Single file batch (no proof needed)';
   page.drawText(proofSummary, {
     x: 60, y: height - 648, size: 6, font: courier, color: gray,

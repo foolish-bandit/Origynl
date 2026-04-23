@@ -1,125 +1,118 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { createWalletClient, createPublicClient, http, parseAbi } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
+import { z } from 'zod';
+import {
+  LEDGER_ABI,
+  polygonAmoy,
+  publicAmoyClient,
+  sanitizePrivateKey,
+  walletAmoyClient,
+} from './_lib/chain';
+import { clientIp, rateLimit } from './_lib/rateLimit';
 
-// Manual chain definition (polygonAmoy not always exported cleanly)
-const polygonAmoy = {
-  id: 80002,
-  name: 'Polygon Amoy',
-  network: 'polygon-amoy',
-  nativeCurrency: { name: 'POL', symbol: 'POL', decimals: 18 },
-  rpcUrls: {
-    default: { http: ['https://rpc-amoy.polygon.technology'] },
-    public: { http: ['https://rpc-amoy.polygon.technology'] },
-  },
-  blockExplorers: {
-    default: { name: 'PolygonScan', url: 'https://amoy.polygonscan.com' },
-  },
-  testnet: true,
-} as const;
+const BodySchema = z.object({
+  hash: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/i, 'hash must be a lowercase 64-char hex SHA-256')
+    .transform((s) => s.toLowerCase()),
+  fileName: z.string().min(1).max(512).optional(),
+});
 
-const ABI = parseAbi([
-  'function certify(string calldata _hash) external',
-  'function verify(string calldata _hash) external view returns (bool, uint256, address)'
-]);
+const RECEIPT_TIMEOUT_MS = 60_000;
+const RATE_LIMIT_PER_MIN = Number(process.env.CERTIFY_RATE_LIMIT ?? '10');
+const DAILY_GAS_CAP_POL = Number(process.env.DAILY_GAS_CAP_POL ?? '0');
 
-const RPC_URL = 'https://rpc-amoy.polygon.technology';
-
-export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS headers
+function setCors(res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST');
+  res.setHeader('Access-Control-Allow-Methods', 'OPTIONS,POST');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+}
 
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  setCors(res);
+
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+
+  const limit = await rateLimit('certify', clientIp(req), RATE_LIMIT_PER_MIN, 60);
+  if (!limit.ok) {
+    res.setHeader('Retry-After', String(limit.retryAfterSec));
+    return res.status(429).json({ error: 'Too many requests', retryAfterSec: limit.retryAfterSec });
   }
 
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  // Validate environment
-  let PRIVATE_KEY = process.env.PRIVATE_KEY;
-  const CONTRACT_ADDRESS = process.env.CONTRACT_ADDRESS;
-
-  if (!PRIVATE_KEY || !CONTRACT_ADDRESS) {
-    console.error('Missing PRIVATE_KEY or CONTRACT_ADDRESS');
+  const privateKey = sanitizePrivateKey(process.env.PRIVATE_KEY);
+  const contractAddress = process.env.CONTRACT_ADDRESS as `0x${string}` | undefined;
+  if (!privateKey || !contractAddress) {
+    console.error('[certify] Missing or invalid PRIVATE_KEY / CONTRACT_ADDRESS');
     return res.status(500).json({ error: 'Server misconfigured' });
   }
 
-  // Sanitize private key
-  PRIVATE_KEY = PRIVATE_KEY.trim().replace(/^["']|["']$/g, '');
-  if (!PRIVATE_KEY.startsWith('0x')) PRIVATE_KEY = `0x${PRIVATE_KEY}`;
-
-  if (PRIVATE_KEY.length !== 66) {
-    console.error(`Private key length error: ${PRIVATE_KEY.length}`);
-    return res.status(500).json({ error: 'Server misconfigured' });
+  const parsed = BodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid request body', details: parsed.error.flatten() });
   }
+  const { hash } = parsed.data;
 
   try {
-    const { hash } = req.body;
-    
-    if (!hash || typeof hash !== 'string') {
-      return res.status(400).json({ error: 'Missing or invalid hash' });
-    }
+    const publicClient = publicAmoyClient();
+    const { account, client: walletClient } = walletAmoyClient(privateKey);
 
-    console.log(`[Certify] Hash: ${hash.substring(0, 15)}...`);
-
-    const account = privateKeyToAccount(PRIVATE_KEY as `0x${string}`);
-
-    const publicClient = createPublicClient({
-      chain: polygonAmoy,
-      transport: http(RPC_URL)
-    });
-
-    const walletClient = createWalletClient({
-      account,
-      chain: polygonAmoy,
-      transport: http(RPC_URL)
-    });
-
-    // Check if already certified
     const [exists] = await publicClient.readContract({
-      address: CONTRACT_ADDRESS as `0x${string}`,
-      abi: ABI,
+      address: contractAddress,
+      abi: LEDGER_ABI,
       functionName: 'verify',
-      args: [hash]
+      args: [hash],
     });
 
     if (exists) {
-      console.log('[Skipped] Already on chain.');
       return res.status(409).json({ error: 'Document already certified.' });
     }
 
-    // Simulate then write
-    console.log('[Mining] Sending transaction...');
+    if (DAILY_GAS_CAP_POL > 0) {
+      const gasCheck = await rateLimit(
+        'gas-daily',
+        account.address.toLowerCase(),
+        Math.floor(DAILY_GAS_CAP_POL * 1000),
+        24 * 60 * 60
+      );
+      if (!gasCheck.ok) {
+        res.setHeader('Retry-After', String(gasCheck.retryAfterSec));
+        return res.status(503).json({ error: 'Sponsor daily cap reached' });
+      }
+    }
+
     const { request } = await publicClient.simulateContract({
-      address: CONTRACT_ADDRESS as `0x${string}`,
-      abi: ABI,
+      address: contractAddress,
+      abi: LEDGER_ABI,
       functionName: 'certify',
       args: [hash],
       account,
       chain: polygonAmoy,
     });
 
-    const txHash = await walletClient.writeContract(request as any);
-    console.log(`[Pending] TX: ${txHash}`);
+    const txHash = await walletClient.writeContract(request);
+    console.log(`[certify] sent tx=${txHash}`);
 
-    const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash });
-    console.log(`[Success] Block: ${receipt.blockNumber}`);
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+      timeout: RECEIPT_TIMEOUT_MS,
+      confirmations: 1,
+      retryCount: 3,
+    });
+
+    const block = await publicClient.getBlock({ blockNumber: receipt.blockNumber });
+    const timestamp = Number(block.timestamp) * 1000;
 
     return res.status(200).json({
       success: true,
       txHash: receipt.transactionHash,
       blockHeight: Number(receipt.blockNumber),
-      timestamp: Date.now(),
-      sender: account.address
+      timestamp,
+      sender: account.address,
     });
-
-  } catch (error: any) {
-    console.error('[Error]', error.message);
-    return res.status(500).json({ error: error.message || 'Transaction failed' });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Transaction failed';
+    console.error('[certify] error:', message);
+    return res.status(500).json({ error: message });
   }
 }
