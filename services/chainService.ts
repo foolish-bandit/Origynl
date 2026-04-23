@@ -9,9 +9,16 @@ import { polygonAmoy } from 'viem/chains';
  * - For transaction-ID lookups we proxy through /api/verify to decode the calldata.
  * - Writes go through /api/certify (server signs with the sponsor key).
  * - Reads use a fallback transport so a single RPC hiccup doesn't surface as "not found".
+ *
+ * Dual-read: when VITE_CONTRACT_V2_ADDRESS is set, reads check
+ * OrigynlLedgerV2 first and fall back to the v1 contract so old
+ * certifications keep verifying. Writes still go to v1 until the
+ * /api/certify endpoint is switched over.
  */
 
 export const CONTRACT_ADDRESS = '0x894C98bf09B4e9e4FEd3612803920b7d82C59d41';
+export const CONTRACT_V2_ADDRESS: `0x${string}` | undefined =
+  (import.meta.env?.VITE_CONTRACT_V2_ADDRESS as `0x${string}` | undefined) || undefined;
 
 const RPC_ENDPOINTS = [
   import.meta.env?.VITE_AMOY_RPC_URL,
@@ -32,8 +39,55 @@ const ABI = parseAbi([
   'function verify(string calldata _hash) external view returns (bool, uint256, address)',
 ]);
 
+const V2_ABI = parseAbi([
+  'struct Record { uint64 blockTs; address signer; uint32 flags; }',
+  'function verify(bytes32 leaf) external view returns (Record memory)',
+  'function batches(bytes32 root) external view returns (uint32)',
+  'function phashOf(bytes32 leaf) external view returns (bytes8)',
+]);
+
+const FLAG_LIVE_CAPTURE = 1 << 0;
+const FLAG_BATCH_ROOT = 1 << 1;
+
 const isHex64 = (s: string) => /^[a-f0-9]{64}$/i.test(s);
 const isTxHash = (s: string) => s.startsWith('0x') && s.length === 66 && isHex64(s.slice(2));
+
+function hexToBytes32(hex: string): `0x${string}` {
+  const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+  return `0x${clean.toLowerCase()}` as `0x${string}`;
+}
+
+async function tryReadV2(hash: string): Promise<LookupResult | null> {
+  if (!CONTRACT_V2_ADDRESS) return null;
+  try {
+    const leaf = hexToBytes32(hash);
+    const record = (await publicClient.readContract({
+      address: CONTRACT_V2_ADDRESS,
+      abi: V2_ABI,
+      functionName: 'verify',
+      args: [leaf],
+    })) as { blockTs: bigint; signer: `0x${string}`; flags: number };
+    if (record.blockTs === 0n) return null; // try v1
+    const flags = Number(record.flags);
+    return {
+      status: 'found',
+      record: {
+        hash,
+        timestamp: Number(record.blockTs) * 1000,
+        blockHeight: 0,
+        sender: record.signer,
+        fileName:
+          flags & FLAG_BATCH_ROOT ? 'Batch root (v2)' : 'On-Chain Asset (v2)',
+        provenanceType: flags & FLAG_LIVE_CAPTURE ? 'LIVE_CAPTURE' : 'UPLOAD',
+        isSimulation: false,
+      },
+    };
+  } catch {
+    // Treat v2 read failures as "unknown" and try v1 — v2 is additive, never
+    // a reason to surface an error when v1 might still have the record.
+    return null;
+  }
+}
 
 export type LookupResult =
   | { status: 'found'; record: ChainRecord }
@@ -79,6 +133,11 @@ export const findRecordByHashDetailed = async (input: string): Promise<LookupRes
   if (!isHex64(hash)) {
     return { status: 'error', error: 'Input must be a 64-char hex SHA-256 or a 0x-prefixed tx id' };
   }
+
+  // Dual-read: v2 first when configured, fall back to v1 so legacy
+  // certifications still resolve.
+  const v2 = await tryReadV2(hash);
+  if (v2) return v2;
 
   try {
     const [exists, timestamp, sender] = await publicClient.readContract({
