@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import { computeFileHash, computeCompositeHash } from '../services/hashService';
 import { writeHashToChain } from '../services/chainService';
 import { generateCertificate } from '../services/certificateService';
+import { buildMerkleTree, type MerkleProof } from '../services/merkleService';
 import { SensorData, ChainRecord } from '../types';
 import { HashStrip } from '../components/HashStrip';
 import { SealGraphic } from '../components/SealGraphic';
@@ -53,6 +54,7 @@ export const Certify: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [witnessNote, setWitnessNote] = useState('');
+  const [batchProofs, setBatchProofs] = useState<MerkleProof[] | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const incomingState = location.state;
@@ -82,30 +84,59 @@ export const Certify: React.FC = () => {
     setRecord(null);
     setError(null);
     setWitnessNote('');
+    setBatchProofs(null);
   };
+
+  const isBatch = files.length > 1;
 
   const begin = async () => {
     if (!files.length) return;
-    const file = files[0];
     setStage('PROCESSING');
     setError(null);
     setStep(1);
+    setBatchProofs(null);
 
     try {
-      let computed: string;
-      if (incomingState?.isLiveCapture && incomingState.sensorData) {
-        computed = await computeCompositeHash(file, incomingState.sensorData);
-      } else {
-        computed = await computeFileHash(file);
+      if (files.length === 1) {
+        const file = files[0];
+        let computed: string;
+        if (incomingState?.isLiveCapture && incomingState.sensorData) {
+          computed = await computeCompositeHash(file, incomingState.sensorData);
+        } else {
+          computed = await computeFileHash(file);
+        }
+        setHash(computed);
+        setStep(2);
+        setStep(3);
+
+        const written = await writeHashToChain(
+          computed,
+          file.name,
+          incomingState?.isLiveCapture ? 'LIVE_CAPTURE' : 'UPLOAD',
+        );
+        setStep(5);
+        setRecord(written);
+        setStep(6);
+        setStage('DONE');
+        return;
       }
-      setHash(computed);
+
+      // Batch path: hash every file, build a Merkle tree, commit the root.
+      const hashed: { hash: string; fileName: string }[] = [];
+      for (const f of files) {
+        hashed.push({ hash: await computeFileHash(f), fileName: f.name });
+      }
       setStep(2);
+
+      const tree = await buildMerkleTree(hashed);
+      setHash(tree.root);
+      setBatchProofs(tree.proofs);
       setStep(3);
 
       const written = await writeHashToChain(
-        computed,
-        file.name,
-        incomingState?.isLiveCapture ? 'LIVE_CAPTURE' : 'UPLOAD',
+        tree.root,
+        `Batch of ${files.length} files`,
+        'UPLOAD',
       );
       setStep(5);
       setRecord(written);
@@ -138,6 +169,37 @@ export const Certify: React.FC = () => {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const downloadBatchProofs = () => {
+    if (!record || !batchProofs) return;
+    const bundle = {
+      schema: 'origynl.batch-proofs.v1',
+      rootHash: record.hash,
+      txHash: record.txHash ?? null,
+      blockHeight: record.blockHeight,
+      timestamp: record.timestamp,
+      signer: record.sender,
+      chain: { name: 'Polygon Amoy', id: 80002 },
+      note: witnessNote || undefined,
+      proofs: batchProofs.map((p) => ({
+        fileName: p.fileName,
+        fileHash: p.fileHash,
+        leafHash: p.leafHash,
+        proofPath: p.proofPath,
+        index: p.index,
+        totalFiles: p.totalFiles,
+      })),
+    };
+    const blob = new Blob([JSON.stringify(bundle, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `origynl-batch-${record.hash.slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const copyLink = () => {
@@ -303,6 +365,25 @@ export const Certify: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {isBatch && (
+              <div
+                style={{
+                  marginTop: 18,
+                  padding: 14,
+                  border: '1px solid var(--rule)',
+                  background: 'var(--bg-1)',
+                  fontSize: 12,
+                }}
+              >
+                <span className="label" style={{ color: 'var(--seal)', marginRight: 8 }}>
+                  BATCH
+                </span>
+                {files.length} files will be Merkle-rooted and committed in a{' '}
+                <strong>single transaction</strong>. You&apos;ll receive a proof bundle that lets
+                anyone independently verify each file against the on-chain root.
+              </div>
+            )}
 
             {files.length > 0 && (
               <div style={{ marginTop: 20 }}>
@@ -501,19 +582,29 @@ export const Certify: React.FC = () => {
                 <IconCheck size={22} stroke={2.5} />
               </div>
               <div>
-                <div className="label" style={{ color: 'var(--ok)' }}>CERTIFIED</div>
+                <div className="label" style={{ color: 'var(--ok)' }}>
+                  {batchProofs ? `BATCH CERTIFIED · ${batchProofs.length} FILES` : 'CERTIFIED'}
+                </div>
                 <div
                   className="serif"
                   style={{ fontSize: 32, letterSpacing: '-0.02em', marginTop: 4 }}
                 >
-                  Inscribed. Permanent.
+                  {batchProofs
+                    ? `${batchProofs.length} files · one transaction.`
+                    : 'Inscribed. Permanent.'}
                 </div>
               </div>
             </div>
 
             <dl className="kv" style={{ marginTop: 24 }}>
-              <dt>FILE</dt><dd>{record.fileName}</dd>
-              <dt>SHA-256</dt><dd style={{ color: 'var(--ink-dim)' }}>{record.hash}</dd>
+              <dt>{batchProofs ? 'ROOT' : 'FILE'}</dt>
+              <dd>
+                {batchProofs
+                  ? `Merkle root covering ${batchProofs.length} documents`
+                  : record.fileName}
+              </dd>
+              <dt>{batchProofs ? 'ROOT HASH' : 'SHA-256'}</dt>
+              <dd style={{ color: 'var(--ink-dim)' }}>{record.hash}</dd>
               <dt>TX</dt>
               <dd style={{ color: 'var(--seal)' }}>
                 {shortHash(record.txHash)}{' '}
@@ -525,6 +616,45 @@ export const Certify: React.FC = () => {
               <dt>ISSUED</dt><dd>{issuedLabel}</dd>
               <dt>SIGNER</dt><dd>{record.sender ? shortHash(record.sender) : '—'}</dd>
             </dl>
+
+            {batchProofs && (
+              <details
+                style={{
+                  marginTop: 20,
+                  padding: '12px 16px',
+                  border: '1px solid var(--rule)',
+                  background: 'var(--bg-1)',
+                }}
+              >
+                <summary
+                  style={{
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--ink-dim)',
+                  }}
+                >
+                  Files in this batch
+                </summary>
+                <ol style={{ marginTop: 12, paddingLeft: 20, fontSize: 12 }}>
+                  {batchProofs.map((p) => (
+                    <li
+                      key={p.index}
+                      style={{ padding: '4px 0', color: 'var(--ink-dim)' }}
+                    >
+                      <span style={{ color: 'var(--ink)' }}>{p.fileName}</span>
+                      <span
+                        className="mono"
+                        style={{ marginLeft: 8, color: 'var(--ink-mute)' }}
+                      >
+                        {shortHash(p.fileHash)}
+                      </span>
+                    </li>
+                  ))}
+                </ol>
+              </details>
+            )}
 
             <div
               style={{
@@ -542,6 +672,16 @@ export const Certify: React.FC = () => {
                 <span>Download certificate</span>
                 <IconDownload size={14} />
               </button>
+              {batchProofs && (
+                <button
+                  className="btn"
+                  style={{ justifyContent: 'space-between' }}
+                  onClick={downloadBatchProofs}
+                >
+                  <span>Download proof bundle ({batchProofs.length})</span>
+                  <IconDownload size={14} />
+                </button>
+              )}
               <a
                 className="btn"
                 style={{ justifyContent: 'space-between' }}
