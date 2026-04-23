@@ -173,7 +173,7 @@ export const Certify: React.FC = () => {
   const downloadCertificate = async () => {
     if (!record) return;
     try {
-      const blob = await generateCertificate({
+      const unsignedBlob = await generateCertificate({
         fileName: record.fileName,
         fileHash: record.hash,
         txHash: record.txHash ?? '',
@@ -181,7 +181,40 @@ export const Certify: React.FC = () => {
         blockHeight: record.blockHeight,
         sender: record.sender,
       });
-      const url = URL.createObjectURL(blob);
+
+      // Best-effort PAdES sign. If the server doesn't have a P12 configured
+      // it returns 501 and we fall back to the unsigned certificate so the
+      // user still gets something useful.
+      let finalBlob = unsignedBlob;
+      try {
+        const buf = new Uint8Array(await unsignedBlob.arrayBuffer());
+        let binary = '';
+        for (let i = 0; i < buf.length; i++) binary += String.fromCharCode(buf[i]);
+        const pdfBase64 = btoa(binary);
+        const res = await fetch('/api/sign-certificate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pdfBase64,
+            reason: `Origynl ledger record ${record.hash.slice(0, 10)}…`,
+          }),
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.signed && typeof json.pdfBase64 === 'string') {
+            const signedBytes = decodeBase64ToBytes(json.pdfBase64);
+            finalBlob = new Blob([signedBytes], { type: 'application/pdf' });
+          }
+        } else if (res.status !== 501) {
+          // 501 = server hasn't configured signing; silently fall back.
+          // Anything else is unexpected — surface to console.
+          console.warn('[Certify] sign-certificate returned', res.status);
+        }
+      } catch (signErr) {
+        console.warn('[Certify] PDF signing skipped:', signErr);
+      }
+
+      const url = URL.createObjectURL(finalBlob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `origynl-certificate-${record.hash.slice(0, 10)}.pdf`;
