@@ -162,3 +162,95 @@ export async function verifyMerkleProof(proof: MerkleProof): Promise<boolean> {
   }
   return current === proof.rootHash;
 }
+
+/** Shape of the JSON a user downloads after a batch certification. */
+export interface BatchProofBundle {
+  schema: 'origynl.batch-proofs.v1';
+  rootHash: string;
+  txHash: string | null;
+  blockHeight?: number;
+  timestamp?: number;
+  signer?: string;
+  chain?: { name?: string; id?: number };
+  note?: string;
+  proofs: MerkleProof[];
+}
+
+export interface BundleParseResult {
+  ok: true;
+  bundle: BatchProofBundle;
+}
+export interface BundleParseError {
+  ok: false;
+  error: string;
+}
+
+export function parseBundle(raw: unknown): BundleParseResult | BundleParseError {
+  if (raw === null || typeof raw !== 'object') {
+    return { ok: false, error: 'Not a JSON object' };
+  }
+  const b = raw as Record<string, unknown>;
+  if (b.schema !== 'origynl.batch-proofs.v1') {
+    return { ok: false, error: `Unsupported schema: ${String(b.schema)}` };
+  }
+  if (typeof b.rootHash !== 'string' || !/^[a-f0-9]{64}$/i.test(b.rootHash)) {
+    return { ok: false, error: 'rootHash missing or malformed' };
+  }
+  if (!Array.isArray(b.proofs) || b.proofs.length === 0) {
+    return { ok: false, error: 'proofs[] missing or empty' };
+  }
+  for (const p of b.proofs as unknown[]) {
+    if (p === null || typeof p !== 'object') {
+      return { ok: false, error: 'A proof entry is not an object' };
+    }
+    const pp = p as Record<string, unknown>;
+    if (typeof pp.fileHash !== 'string' || !/^[a-f0-9]{64}$/i.test(pp.fileHash)) {
+      return { ok: false, error: 'proof.fileHash malformed' };
+    }
+    if (typeof pp.leafHash !== 'string' || !/^[a-f0-9]{64}$/i.test(pp.leafHash)) {
+      return { ok: false, error: 'proof.leafHash malformed' };
+    }
+    if (!Array.isArray(pp.proofPath)) {
+      return { ok: false, error: 'proof.proofPath must be an array' };
+    }
+    for (const sibling of pp.proofPath as unknown[]) {
+      if (typeof sibling !== 'string' || !/^[a-f0-9]{64}$/i.test(sibling)) {
+        return { ok: false, error: 'proof.proofPath contains malformed hash' };
+      }
+    }
+  }
+  return { ok: true, bundle: raw as BatchProofBundle };
+}
+
+export type BundleVerdict =
+  | { status: 'match'; proof: MerkleProof }
+  | { status: 'no_member'; fileHash: string }
+  | { status: 'tampered'; proof: MerkleProof }
+  | { status: 'root_mismatch'; proof: MerkleProof };
+
+/**
+ * Given a bundle and a file's SHA-256, either return the verified matching
+ * proof or explain why the file is not a member of this batch.
+ */
+export async function verifyFileAgainstBundle(
+  fileHash: string,
+  bundle: BatchProofBundle
+): Promise<BundleVerdict> {
+  const normalisedFile = fileHash.toLowerCase();
+  const match = bundle.proofs.find((p) => p.fileHash.toLowerCase() === normalisedFile);
+  if (!match) return { status: 'no_member', fileHash: normalisedFile };
+
+  const expectedLeaf = hashLeaf(match.fileHash);
+  if (expectedLeaf.toLowerCase() !== match.leafHash.toLowerCase()) {
+    return { status: 'tampered', proof: match };
+  }
+
+  // Walk the path using the proof's declared root, then also compare against
+  // the bundle's headline root so a tampered per-proof root can't pass.
+  const proofValid = await verifyMerkleProof(match);
+  if (!proofValid) return { status: 'tampered', proof: match };
+  if (match.rootHash.toLowerCase() !== bundle.rootHash.toLowerCase()) {
+    return { status: 'root_mismatch', proof: match };
+  }
+  return { status: 'match', proof: match };
+}

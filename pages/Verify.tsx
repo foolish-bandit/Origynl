@@ -6,6 +6,7 @@ import { ChainRecord } from '../types';
 import { HashStrip } from '../components/HashStrip';
 import { SealGraphic } from '../components/SealGraphic';
 import { IconArrow, IconCheck, IconExt, IconFile, IconSearch, IconX } from '../components/Icons';
+import { BatchVerifyPanel } from '../components/BatchVerifyPanel';
 
 type State = 'IDLE' | 'SEARCHING' | 'AUTHENTIC' | 'NOT_FOUND' | 'ERROR';
 
@@ -411,6 +412,8 @@ export const Verify: React.FC = () => {
           </div>
         </div>
       )}
+
+      <BatchVerifyPanel />
     </div>
   );
 };

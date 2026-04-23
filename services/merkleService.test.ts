@@ -4,6 +4,9 @@ import {
   hashInternalPair,
   hashLeaf,
   verifyMerkleProof,
+  parseBundle,
+  verifyFileAgainstBundle,
+  type BatchProofBundle,
   type MerkleProof,
 } from './merkleService';
 
@@ -83,5 +86,66 @@ describe('merkleService', () => {
 
   it('throws on empty input', async () => {
     await expect(buildMerkleTree([])).rejects.toThrow();
+  });
+});
+
+describe('BatchProofBundle parsing + verification', () => {
+  async function makeBundle(files = FILES): Promise<BatchProofBundle> {
+    const tree = await buildMerkleTree(files);
+    return {
+      schema: 'origynl.batch-proofs.v1',
+      rootHash: tree.root,
+      txHash: null,
+      proofs: tree.proofs,
+    };
+  }
+
+  it('accepts a well-formed bundle', async () => {
+    const bundle = await makeBundle();
+    const parsed = parseBundle(bundle);
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('rejects wrong schema', () => {
+    const parsed = parseBundle({ schema: 'other.v1', rootHash: 'aa'.repeat(32), proofs: [] });
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('rejects malformed proof hashes', async () => {
+    const bundle = await makeBundle();
+    const bad = { ...bundle, proofs: [{ ...bundle.proofs[0], fileHash: 'not-hex' }] };
+    const parsed = parseBundle(bad);
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('verifies a matching file + bundle', async () => {
+    const bundle = await makeBundle();
+    const verdict = await verifyFileAgainstBundle(FILES[2].hash, bundle);
+    expect(verdict.status).toBe('match');
+  });
+
+  it('reports no_member when the file hash is not listed', async () => {
+    const bundle = await makeBundle();
+    const verdict = await verifyFileAgainstBundle('11'.repeat(32), bundle);
+    expect(verdict.status).toBe('no_member');
+  });
+
+  it('reports tampered when a proof path is forged', async () => {
+    const bundle = await makeBundle();
+    const tampered: BatchProofBundle = {
+      ...bundle,
+      proofs: bundle.proofs.map((p, i) =>
+        i === 0 ? { ...p, proofPath: [...p.proofPath.slice(0, -1), 'ff'.repeat(32)] } : p
+      ),
+    };
+    const verdict = await verifyFileAgainstBundle(FILES[0].hash, tampered);
+    expect(verdict.status).toBe('tampered');
+  });
+
+  it('reports root_mismatch when the bundle headline root differs from per-proof root', async () => {
+    const bundle = await makeBundle();
+    const forged: BatchProofBundle = { ...bundle, rootHash: 'ab'.repeat(32) };
+    const verdict = await verifyFileAgainstBundle(FILES[0].hash, forged);
+    expect(verdict.status).toBe('root_mismatch');
   });
 });
