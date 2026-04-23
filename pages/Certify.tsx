@@ -141,8 +141,9 @@ export const Certify: React.FC = () => {
   };
 
   const copyLink = () => {
-    if (!record?.txHash) return;
-    const link = `${window.location.origin}/#/verify?hash=${record.txHash}`;
+    const id = record?.txHash || record?.hash;
+    if (!id) return;
+    const link = `${window.location.origin}/#/proof/${id}`;
     navigator.clipboard.writeText(link).then(
       () => {
         setCopied(true);
@@ -197,8 +198,16 @@ export const Certify: React.FC = () => {
               onDrop={onDrop}
               onDragOver={(e) => e.preventDefault()}
               onClick={() => inputRef.current?.click()}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  inputRef.current?.click();
+                }
+              }}
               role="button"
               tabIndex={0}
+              aria-label="Upload a file to certify. Drag and drop, or press Enter to browse."
               style={{
                 border: '1px dashed var(--rule-hi)',
                 padding: 48,
@@ -239,15 +248,23 @@ export const Certify: React.FC = () => {
                     style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}
                   >
                     <span>{files.length} file{files.length > 1 ? 's' : ''} selected</span>
-                    <span
+                    <button
+                      type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         setFiles([]);
                       }}
-                      style={{ color: 'var(--seal)', cursor: 'pointer' }}
+                      style={{
+                        color: 'var(--seal)',
+                        cursor: 'pointer',
+                        background: 'none',
+                        border: 'none',
+                        font: 'inherit',
+                        letterSpacing: 'inherit',
+                      }}
                     >
                       CLEAR
-                    </span>
+                    </button>
                   </div>
                   {files.map((f, i) => (
                     <div
@@ -317,6 +334,8 @@ export const Certify: React.FC = () => {
 
             {error && (
               <div
+                role="alert"
+                aria-live="assertive"
                 style={{
                   marginTop: 20,
                   padding: 14,
@@ -368,7 +387,7 @@ export const Certify: React.FC = () => {
         )}
 
         {stage === 'PROCESSING' && (
-          <div>
+          <div role="status" aria-live="polite" aria-busy="true">
             <div className="label" style={{ color: 'var(--seal)', marginBottom: 16 }}>
               PROCESSING · DO NOT CLOSE
             </div>
@@ -458,7 +477,7 @@ export const Certify: React.FC = () => {
         )}
 
         {stage === 'DONE' && record && (
-          <div>
+          <div role="status" aria-live="polite">
             <div
               style={{
                 display: 'flex',

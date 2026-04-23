@@ -126,18 +126,22 @@ export const Verify: React.FC = () => {
             border: '1px solid var(--rule)',
           }}
         >
-          <div
+          <button
+            type="button"
             onDragOver={(e) => e.preventDefault()}
             onDrop={onDrop}
             onClick={() => inputRef.current?.click()}
-            role="button"
-            tabIndex={0}
+            aria-label="Upload a file to verify. Drag and drop or press Enter."
             style={{
               padding: 48,
               borderRight: '1px solid var(--rule)',
               cursor: 'pointer',
               textAlign: 'center',
               background: 'var(--bg-1)',
+              width: '100%',
+              border: 'none',
+              color: 'inherit',
+              font: 'inherit',
             }}
           >
             <input
@@ -167,7 +171,7 @@ export const Verify: React.FC = () => {
             <div className="label-sm" style={{ marginTop: 6 }}>
               We'll fingerprint it locally
             </div>
-          </div>
+          </button>
           <div style={{ padding: 48 }}>
             <div className="label">BY TRANSACTION OR HASH</div>
             <form
@@ -208,7 +212,12 @@ export const Verify: React.FC = () => {
       )}
 
       {state === 'SEARCHING' && (
-        <div style={{ padding: 64, border: '1px solid var(--rule)', textAlign: 'center' }}>
+        <div
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          style={{ padding: 64, border: '1px solid var(--rule)', textAlign: 'center' }}
+        >
           <div
             style={{
               display: 'inline-block',
@@ -232,6 +241,8 @@ export const Verify: React.FC = () => {
 
       {state === 'AUTHENTIC' && record && (
         <div
+          role="status"
+          aria-live="polite"
           style={{ border: '2px solid var(--ok)', background: 'var(--bg-1)', position: 'relative' }}
         >
           <div
@@ -352,7 +363,7 @@ export const Verify: React.FC = () => {
       )}
 
       {state === 'NOT_FOUND' && (
-        <div style={{ border: '2px solid var(--bad)', padding: 48 }}>
+        <div role="status" aria-live="polite" style={{ border: '2px solid var(--bad)', padding: 48 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
             <IconX size={22} stroke={2.5} style={{ color: 'var(--bad)' }} />
             <span className="label" style={{ color: 'var(--bad)' }}>
@@ -388,7 +399,7 @@ export const Verify: React.FC = () => {
       )}
 
       {state === 'ERROR' && (
-        <div style={{ border: '2px solid var(--bad)', padding: 48 }}>
+        <div role="alert" aria-live="assertive" style={{ border: '2px solid var(--bad)', padding: 48 }}>
           <div className="label" style={{ color: 'var(--bad)', marginBottom: 16 }}>
             ERROR · CHAIN LOOKUP FAILED
           </div>
